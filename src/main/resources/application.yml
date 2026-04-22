@@ -2,15 +2,17 @@ spring:
   application:
     name: teacher-bot
 
-  r2dbc:
-    url: r2dbc:postgresql://localhost:5432/teacher_bot
+  datasource:
+    url: jdbc:postgresql://localhost:5432/teacher_bot
     username: postgres
     password: 1
 
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
   flyway:
-    url: jdbc:postgresql://localhost:5432/teacher_bot
-    user: postgres
-    password: 1
     locations: classpath:db/migration
 
 server:
@@ -19,13 +21,10 @@ server:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
-    url: /v3/api-docs
     default-models-expand-depth: 0
     doc-expansion: list
   api-docs:
     path: /v3/api-docs
-  webjars:
-    prefix: /webjars
 
 app:
   jwt:
