@@ -1,30 +1,14 @@
 package uz.sevenEdu.teacherBot.common.config;
 
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.WebFilter;
-import org.springframework.web.server.WebFilterChain;
-import reactor.core.publisher.Mono;
-
-import java.net.URI;
+import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
-public class SwaggerRedirectConfig {
+public class SwaggerRedirectConfig implements WebMvcConfigurer {
 
-    @Bean
-    @Order(-100)
-    public WebFilter swaggerRedirectFilter() {
-        return (ServerWebExchange exchange, WebFilterChain chain) -> {
-            String path = exchange.getRequest().getURI().getPath();
-            if ("/swagger-ui/index.html".equals(path) || "/swagger-ui.html".equals(path)) {
-                exchange.getResponse().setStatusCode(HttpStatus.FOUND);
-                exchange.getResponse().getHeaders().setLocation(URI.create("/webjars/swagger-ui/index.html"));
-                return exchange.getResponse().setComplete();
-            }
-            return chain.filter(exchange);
-        };
+    @Override
+    public void addViewControllers(ViewControllerRegistry registry) {
+        registry.addRedirectViewController("/swagger-ui.html", "/swagger-ui/index.html");
     }
 }

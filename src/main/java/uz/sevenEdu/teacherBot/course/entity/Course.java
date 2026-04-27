@@ -1,24 +1,29 @@
 package uz.sevenEdu.teacherBot.course.entity;
 
+import jakarta.persistence.*;
 import lombok.*;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.relational.core.mapping.Table;
-import java.time.LocalDateTime;
+import uz.sevenEdu.teacherBot.file.entity.FileEntity;
+import uz.sevenEdu.teacherBot.subject.entity.Subject;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table("courses")
+@Entity
+@Table(name = "courses")
 public class Course {
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     private String name;
-    private String category;
-    private String flagEmoji;
-    private Integer hours;
-    private Integer lessonCount;
-    private String goal;
-    private Boolean isPremium;
-    private LocalDateTime createdAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "image_id")
+    @ToString.Exclude
+    private FileEntity image;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "subject_id")
+    @ToString.Exclude
+    private Subject subject;
 }

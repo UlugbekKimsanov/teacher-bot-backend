@@ -3,11 +3,11 @@ package uz.sevenEdu.teacherBot.auth.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.auth.dto.AuthResponse;
 import uz.sevenEdu.teacherBot.auth.dto.LoginRequest;
 import uz.sevenEdu.teacherBot.auth.dto.RegisterRequest;
 import uz.sevenEdu.teacherBot.auth.entity.User;
+import uz.sevenEdu.teacherBot.auth.enums.UserRole;
 import uz.sevenEdu.teacherBot.auth.repository.UserRepository;
 import uz.sevenEdu.teacherBot.auth.security.JwtUtil;
 import uz.sevenEdu.teacherBot.common.exception.BadRequestException;
@@ -22,38 +22,42 @@ public class AuthServiceImpl implements AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final OtpService otpService;
 
     @Override
-    public Mono<AuthResponse> register(RegisterRequest request) {
-        return userRepository.existsByPhone(request.getPhone())
-                .flatMap(exists -> {
-                    if (exists) {
-                        return Mono.error(new BadRequestException("Bu telefon raqam allaqachon ro'yxatdan o'tgan"));
-                    }
-                    User user = User.builder()
-                            .firstName(request.getFirstName())
-                            .lastName(request.getLastName())
-                            .phone(request.getPhone())
-                            .password(passwordEncoder.encode(request.getPassword()))
-                            .role("STUDENT")
-                            .createdAt(LocalDateTime.now())
-                            .build();
-                    return userRepository.save(user);
-                })
-                .map(this::toAuthResponse);
+    public void sendOtp(String email) {
+        otpService.sendOtp(email);
     }
 
     @Override
-    public Mono<AuthResponse> login(LoginRequest request) {
-        return userRepository.findByPhone(request.getPhone())
-                .switchIfEmpty(Mono.error(new UnauthorizedException("Telefon raqam yoki parol noto'g'ri")))
-                .flatMap(user -> {
-                    if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-                        return Mono.error(new UnauthorizedException("Telefon raqam yoki parol noto'g'ri"));
-                    }
-                    return Mono.just(user);
-                })
-                .map(this::toAuthResponse);
+    public AuthResponse register(RegisterRequest request) {
+        otpService.verifyOtp(request.getEmail(), request.getOtpCode());
+
+        if (userRepository.existsByPhone(request.getPhone())) {
+            throw new BadRequestException("Bu telefon raqam allaqachon ro'yxatdan o'tgan");
+        }
+
+        User user = User.builder()
+                .firstName(request.getFirstName())
+                .lastName(request.getLastName())
+                .email(request.getEmail())
+                .phone(request.getPhone())
+                .password(passwordEncoder.encode(request.getPassword()))
+                .role(UserRole.USER)
+                .createdAt(LocalDateTime.now())
+                .build();
+        user = userRepository.save(user);
+        return toAuthResponse(user);
+    }
+
+    @Override
+    public AuthResponse login(LoginRequest request) {
+        User user = userRepository.findByPhone(request.getPhone())
+                .orElseThrow(() -> new UnauthorizedException("Telefon raqam yoki parol noto'g'ri"));
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new UnauthorizedException("Telefon raqam yoki parol noto'g'ri");
+        }
+        return toAuthResponse(user);
     }
 
     private AuthResponse toAuthResponse(User user) {

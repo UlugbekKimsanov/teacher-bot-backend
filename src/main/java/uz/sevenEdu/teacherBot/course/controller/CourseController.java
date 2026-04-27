@@ -1,10 +1,9 @@
 package uz.sevenEdu.teacherBot.course.controller;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.common.response.ApiResponse;
 import uz.sevenEdu.teacherBot.course.dto.CourseDto;
 import uz.sevenEdu.teacherBot.course.service.CourseService;
@@ -19,28 +18,21 @@ public class CourseController {
     private final CourseService courseService;
 
     @GetMapping
-    public Mono<ApiResponse<List<CourseDto>>> getAllCourses(Authentication auth) {
+    public ResponseEntity<ApiResponse<List<CourseDto>>> getAllCourses(Authentication auth) {
         Long userId = getUserId(auth);
-        return courseService.getAllCourses(userId).collectList().map(ApiResponse::ok);
-    }
-
-    @GetMapping("/category/{category}")
-    public Mono<ApiResponse<List<CourseDto>>> getByCategory(
-            @PathVariable String category, Authentication auth) {
-        Long userId = getUserId(auth);
-        return courseService.getCoursesByCategory(category, userId).collectList().map(ApiResponse::ok);
+        return ResponseEntity.ok(ApiResponse.ok(courseService.getAllCourses(userId)));
     }
 
     @GetMapping("/{id}")
-    public Mono<ApiResponse<CourseDto>> getById(@PathVariable Long id, Authentication auth) {
+    public ResponseEntity<ApiResponse<CourseDto>> getById(@PathVariable Long id, Authentication auth) {
         Long userId = getUserId(auth);
-        return courseService.getCourseById(id, userId).map(ApiResponse::ok);
+        return ResponseEntity.ok(ApiResponse.ok(courseService.getCourseById(id, userId)));
     }
 
     @PostMapping("/{id}/enroll")
-    public Mono<ApiResponse<CourseDto>> enroll(@PathVariable Long id, Authentication auth) {
+    public ResponseEntity<ApiResponse<CourseDto>> enroll(@PathVariable Long id, Authentication auth) {
         Long userId = (Long) auth.getPrincipal();
-        return courseService.enrollCourse(userId, id).map(ApiResponse::ok);
+        return ResponseEntity.ok(ApiResponse.ok(courseService.enrollCourse(userId, id)));
     }
 
     private Long getUserId(Authentication auth) {

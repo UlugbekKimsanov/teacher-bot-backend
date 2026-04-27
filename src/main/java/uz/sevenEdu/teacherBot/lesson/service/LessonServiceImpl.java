@@ -2,8 +2,6 @@ package uz.sevenEdu.teacherBot.lesson.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.common.exception.NotFoundException;
 import uz.sevenEdu.teacherBot.lesson.dto.LessonDetailDto;
 import uz.sevenEdu.teacherBot.lesson.dto.TestSubmitRequest;
@@ -23,53 +21,47 @@ public class LessonServiceImpl implements LessonService {
     private final TeacherQuestionRepository teacherQuestionRepository;
 
     @Override
-    public Flux<LessonDetailDto> getLessonsByCourse(Long courseId, Long userId) {
-        return lessonRepository.findByCourseIdOrderByOrderIndex(courseId)
+    public List<LessonDetailDto> getLessonsByCourse(Long courseId, Long userId) {
+        return lessonRepository.findByCourseIdOrderByOrderIndex(courseId).stream()
                 .map(l -> LessonDetailDto.builder()
                         .id(l.getId())
-                        .courseId(l.getCourseId())
-                        .title(l.getTitle())
-                        .videoUrl(l.getVideoUrl())
+                        .courseId(l.getCourse() != null ? l.getCourse().getId() : null)
+                        .title(l.getName())
                         .orderIndex(l.getOrderIndex())
                         .durationSec(l.getDurationSec())
-                        .build());
+                        .build())
+                .toList();
     }
 
     @Override
-    public Mono<LessonDetailDto> getLessonById(Long lessonId, Long userId) {
-        return lessonRepository.findById(lessonId)
-                .switchIfEmpty(Mono.error(new NotFoundException("Dars topilmadi")))
-                .flatMap(lesson ->
-                        Mono.zip(
-                                vocabularyRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
-                                questionRepository.findByLessonId(lessonId).collectList()
-                        ).map(tuple -> buildDetail(lesson, tuple.getT1(), tuple.getT2()))
-                );
+    public LessonDetailDto getLessonById(Long lessonId, Long userId) {
+        var lesson = lessonRepository.findById(lessonId)
+                .orElseThrow(() -> new NotFoundException("Dars topilmadi"));
+        var vocab = vocabularyRepository.findByLessonIdOrderByOrderIndex(lessonId);
+        var questions = questionRepository.findByLessonId(lessonId);
+        return buildDetail(lesson, vocab, questions);
     }
 
     @Override
-    public Mono<Integer> submitTest(Long lessonId, Long userId, TestSubmitRequest request) {
-        return questionRepository.findByLessonId(lessonId)
-                .collectList()
-                .map(questions -> {
-                    int correct = 0;
-                    for (var q : questions) {
-                        String selected = request.getAnswers().get(q.getId());
-                        if (q.getCorrectOption().equalsIgnoreCase(selected)) correct++;
-                    }
-                    return correct;
-                });
+    public int submitTest(Long lessonId, Long userId, TestSubmitRequest request) {
+        var questions = questionRepository.findByLessonId(lessonId);
+        int correct = 0;
+        for (var q : questions) {
+            String selected = request.getAnswers().get(q.getId());
+            if (q.getCorrectOption().equalsIgnoreCase(selected)) correct++;
+        }
+        return correct;
     }
 
     @Override
-    public Mono<Void> askTeacher(Long lessonId, Long userId, String question) {
+    public void askTeacher(Long lessonId, Long userId, String question) {
         TeacherQuestion tq = TeacherQuestion.builder()
                 .userId(userId)
                 .lessonId(lessonId)
                 .question(question)
                 .createdAt(LocalDateTime.now())
                 .build();
-        return teacherQuestionRepository.save(tq).then();
+        teacherQuestionRepository.save(tq);
     }
 
     private LessonDetailDto buildDetail(
@@ -79,13 +71,12 @@ public class LessonServiceImpl implements LessonService {
 
         return LessonDetailDto.builder()
                 .id(lesson.getId())
-                .courseId(lesson.getCourseId())
-                .title(lesson.getTitle())
-                .videoUrl(lesson.getVideoUrl())
+                .courseId(lesson.getCourse() != null ? lesson.getCourse().getId() : null)
+                .title(lesson.getName())
                 .orderIndex(lesson.getOrderIndex())
                 .durationSec(lesson.getDurationSec())
                 .vocabulary(vocab.stream().map(v -> LessonDetailDto.VocabDto.builder()
-                        .id(v.getId()).phraseUz(v.getPhraseUz()).phraseEn(v.getPhraseEn()).build()
+                        .id(v.getId()).phraseUz(v.getTranslationUz()).phraseEn(v.getTranslationTarget()).build()
                 ).toList())
                 .questions(questions.stream().map(q -> LessonDetailDto.QuestionDto.builder()
                         .id(q.getId()).questionText(q.getQuestionText())

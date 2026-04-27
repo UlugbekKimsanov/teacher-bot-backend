@@ -14,6 +14,25 @@ spring:
 
   flyway:
     locations: classpath:db/migration
+    clean-disabled: false
+    clean-on-validation-error: true
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: kimsanov0717@gmail.com
+    password: 'vybh ksbh zwtw bxgk'
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
 
 server:
   port: 8080

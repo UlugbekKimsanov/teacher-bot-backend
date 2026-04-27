@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(while read:*)",
+      "Bash(do echo:*)",
+      "Read(//c/Users/ergas/IdeaProjects/teacher-bot-backend/**)",
+      "Bash(done)",
+      "Bash(./mvnw compile:*)",
+      "Bash(ls C:/Users/ergas/IdeaProjects/teacher-bot-backend/*.*)",
+      "Bash(ls \"C:/Users/ergas/IdeaProjects/teacher-bot-backend/mvnw\"*)",
+      "Bash(where mvn:*)",
+      "Bash(mvn compile:*)",
+      "Bash(ls -la mvnw*)",
+      "Read(//c/Program Files/Apache/**)",
+      "Bash(ls C:/apache-maven*)",
+      "Bash(echo $MAVEN_HOME)",
+      "Bash(echo $M2_HOME)",
+      "Bash(echo $PATH)",
+      "Read(//c/Program Files/JetBrains/**)",
+      "Read(//c/Users/ergas/.m2/**)",
+      "Bash(grep:*)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA 2025.3.3/plugins/maven/lib/maven3/bin/mvn\" compile -f /c/Users/ergas/IdeaProjects/teacher-bot-backend/pom.xml)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA 2025.3.3/plugins/maven/lib/maven3/bin/mvn\" help:effective-pom -f /c/Users/ergas/IdeaProjects/teacher-bot-backend/pom.xml)",
+      "Bash(git checkout:*)"
+    ]
+  }
+}

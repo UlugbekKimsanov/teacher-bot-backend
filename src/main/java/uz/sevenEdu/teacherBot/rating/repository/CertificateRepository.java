@@ -1,11 +1,12 @@
 package uz.sevenEdu.teacherBot.rating.repository;
 
-import org.springframework.data.repository.reactive.ReactiveCrudRepository;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
+import org.springframework.data.jpa.repository.JpaRepository;
 import uz.sevenEdu.teacherBot.rating.entity.Certificate;
 
-public interface CertificateRepository extends ReactiveCrudRepository<Certificate, Long> {
-    Flux<Certificate> findByUserId(Long userId);
-    Mono<Certificate> findByUserIdAndCourseId(Long userId, Long courseId);
+import java.util.List;
+import java.util.Optional;
+
+public interface CertificateRepository extends JpaRepository<Certificate, Long> {
+    List<Certificate> findByUserId(Long userId);
+    Optional<Certificate> findByUserIdAndCourseId(Long userId, Long courseId);
 }

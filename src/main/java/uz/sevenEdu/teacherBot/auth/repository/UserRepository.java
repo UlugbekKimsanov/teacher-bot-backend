@@ -1,10 +1,12 @@
 package uz.sevenEdu.teacherBot.auth.repository;
 
-import org.springframework.data.repository.reactive.ReactiveCrudRepository;
-import reactor.core.publisher.Mono;
+import org.springframework.data.jpa.repository.JpaRepository;
 import uz.sevenEdu.teacherBot.auth.entity.User;
 
-public interface UserRepository extends ReactiveCrudRepository<User, Long> {
-    Mono<User> findByPhone(String phone);
-    Mono<Boolean> existsByPhone(String phone);
+import java.util.Optional;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByPhone(String phone);
+    boolean existsByPhone(String phone);
+    boolean existsByEmail(String email);
 }

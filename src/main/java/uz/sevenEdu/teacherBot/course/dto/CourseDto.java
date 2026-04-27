@@ -9,12 +9,7 @@ import java.math.BigDecimal;
 public class CourseDto {
     private Long id;
     private String name;
-    private String category;
-    private String flagEmoji;
-    private Integer hours;
-    private Integer lessonCount;
-    private String goal;
-    private Boolean isPremium;
+    private String imageUrl;
     private Boolean isEnrolled;
     private BigDecimal progress;
 }

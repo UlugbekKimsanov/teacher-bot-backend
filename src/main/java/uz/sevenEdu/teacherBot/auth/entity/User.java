@@ -1,22 +1,28 @@
 package uz.sevenEdu.teacherBot.auth.entity;
 
+import jakarta.persistence.*;
 import lombok.*;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.relational.core.mapping.Table;
+import uz.sevenEdu.teacherBot.auth.enums.UserRole;
+
 import java.time.LocalDateTime;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table("users")
+@Entity
+@Table(name = "users")
 public class User {
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     private String firstName;
     private String lastName;
+    private String email;
     private String phone;
     private String password;
-    private String role;
+    private String address;
+    @Enumerated(EnumType.STRING)
+    private UserRole role;
     private LocalDateTime createdAt;
 }

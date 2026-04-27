@@ -1,15 +1,20 @@
 package uz.sevenEdu.teacherBot.lesson.entity;
 
+import jakarta.persistence.*;
 import lombok.*;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.relational.core.mapping.Table;
 
-@Data @Builder @NoArgsConstructor @AllArgsConstructor
-@Table("vocabulary")
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@Entity
+@Table(name = "vocabulary")
 public class Vocabulary {
-    @Id private Long id;
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
     private Long lessonId;
-    private String phraseUz;
-    private String phraseEn;
+    private String translationUz;
+    private String translationTarget;
     private Integer orderIndex;
 }

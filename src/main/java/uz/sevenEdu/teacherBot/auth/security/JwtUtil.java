@@ -5,6 +5,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import uz.sevenEdu.teacherBot.auth.enums.UserRole;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
@@ -23,7 +24,7 @@ public class JwtUtil {
         this.expiration = expiration;
     }
 
-    public String generateToken(Long userId, String phone, String role) {
+    public String generateToken(Long userId, String phone, UserRole role) {
         return Jwts.builder()
                 .subject(phone)
                 .claim("userId", userId)

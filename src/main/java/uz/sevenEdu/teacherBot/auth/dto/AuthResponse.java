@@ -2,6 +2,7 @@ package uz.sevenEdu.teacherBot.auth.dto;
 
 import lombok.Builder;
 import lombok.Data;
+import uz.sevenEdu.teacherBot.auth.enums.UserRole;
 
 @Data
 @Builder
@@ -10,6 +11,6 @@ public class AuthResponse {
     private String firstName;
     private String lastName;
     private String phone;
-    private String role;
+    private UserRole role;
     private String token;
 }

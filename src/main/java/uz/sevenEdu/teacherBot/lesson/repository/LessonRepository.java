@@ -1,9 +1,10 @@
 package uz.sevenEdu.teacherBot.lesson.repository;
 
-import org.springframework.data.repository.reactive.ReactiveCrudRepository;
-import reactor.core.publisher.Flux;
+import org.springframework.data.jpa.repository.JpaRepository;
 import uz.sevenEdu.teacherBot.lesson.entity.Lesson;
 
-public interface LessonRepository extends ReactiveCrudRepository<Lesson, Long> {
-    Flux<Lesson> findByCourseIdOrderByOrderIndex(Long courseId);
+import java.util.List;
+
+public interface LessonRepository extends JpaRepository<Lesson, Long> {
+    List<Lesson> findByCourseIdOrderByOrderIndex(Long courseId);
 }

@@ -1,16 +1,27 @@
 package uz.sevenEdu.teacherBot.lesson.entity;
 
+import jakarta.persistence.*;
 import lombok.*;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.relational.core.mapping.Table;
+import uz.sevenEdu.teacherBot.course.entity.Course;
 
-@Data @Builder @NoArgsConstructor @AllArgsConstructor
-@Table("lessons")
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@Entity
+@Table(name = "lessons")
 public class Lesson {
-    @Id private Long id;
-    private Long courseId;
-    private String title;
-    private String videoUrl;
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "course_id")
+    @ToString.Exclude
+    private Course course;
+
+    private String name;
+    private String description;
     private Integer orderIndex;
     private Integer durationSec;
 }
