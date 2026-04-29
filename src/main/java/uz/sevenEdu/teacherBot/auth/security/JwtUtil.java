@@ -15,16 +15,16 @@ import java.util.Date;
 public class JwtUtil {
 
     private final SecretKey key;
-    private final long expiration;
 
-    public JwtUtil(
-            @Value("${app.jwt.secret}") String secret,
-            @Value("${app.jwt.expiration}") long expiration) {
+    private static final long WEB_EXPIRATION = 16 * 60 * 60 * 1000L;       // 16 soat
+    private static final long MOBILE_EXPIRATION = 6 * 30 * 24 * 60 * 60 * 1000L; // ~6 oy
+
+    public JwtUtil(@Value("${app.jwt.secret}") String secret) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        this.expiration = expiration;
     }
 
-    public String generateToken(Long userId, String phone, UserRole role) {
+    public String generateToken(Long userId, String phone, UserRole role, boolean isMobile) {
+        long expiration = isMobile ? MOBILE_EXPIRATION : WEB_EXPIRATION;
         return Jwts.builder()
                 .subject(phone)
                 .claim("userId", userId)

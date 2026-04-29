@@ -24,9 +24,15 @@ public class OtpService {
     private static final String OTP_PREFIX = "otp:";
     private static final long OTP_TTL_MINUTES = 5;
 
-    public void sendOtp(String email) {
-        if (userRepository.existsByEmail(email)) {
-            throw new BadRequestException("Bu email allaqachon ro'yxatdan o'tgan!");
+    public void sendOtp(String email, boolean isLogin) {
+        if (isLogin) {
+            if (!userRepository.existsByEmail(email)) {
+                throw new BadRequestException("Bu email ro'yxatdan o'tmagan!");
+            }
+        } else {
+            if (userRepository.existsByEmail(email)) {
+                throw new BadRequestException("Bu email allaqachon ro'yxatdan o'tgan!");
+            }
         }
 
         String otpCode = generateOtp();

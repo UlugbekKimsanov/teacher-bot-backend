@@ -5,7 +5,7 @@ import uz.sevenEdu.teacherBot.auth.dto.LoginRequest;
 import uz.sevenEdu.teacherBot.auth.dto.RegisterRequest;
 
 public interface AuthService {
-    void sendOtp(String email);
+    void sendOtp(String email, boolean isLogin);
     AuthResponse register(RegisterRequest request);
     AuthResponse login(LoginRequest request);
 }

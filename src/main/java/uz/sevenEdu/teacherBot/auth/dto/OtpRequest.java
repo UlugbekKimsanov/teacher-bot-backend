@@ -9,4 +9,5 @@ public class OtpRequest {
     @NotBlank
     @Email
     private String email;
+    private boolean isLogin;
 }

@@ -25,8 +25,8 @@ public class AuthServiceImpl implements AuthService {
     private final OtpService otpService;
 
     @Override
-    public void sendOtp(String email) {
-        otpService.sendOtp(email);
+    public void sendOtp(String email, boolean isLogin) {
+        otpService.sendOtp(email, isLogin);
     }
 
     @Override
@@ -47,21 +47,27 @@ public class AuthServiceImpl implements AuthService {
                 .createdAt(LocalDateTime.now())
                 .build();
         user = userRepository.save(user);
-        return toAuthResponse(user);
+        return toAuthResponse(user, true);
     }
 
     @Override
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByPhone(request.getPhone())
-                .orElseThrow(() -> new UnauthorizedException("Telefon raqam yoki parol noto'g'ri"));
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new UnauthorizedException("Telefon raqam yoki parol noto'g'ri");
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new UnauthorizedException("Email yoki parol noto'g'ri"));
+
+        if (request.isMobile()) {
+            otpService.verifyOtp(request.getEmail(), request.getPassword());
+        } else {
+            if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+                throw new UnauthorizedException("Email yoki parol noto'g'ri");
+            }
         }
-        return toAuthResponse(user);
+
+        return toAuthResponse(user, request.isMobile());
     }
 
-    private AuthResponse toAuthResponse(User user) {
-        String token = jwtUtil.generateToken(user.getId(), user.getPhone(), user.getRole());
+    private AuthResponse toAuthResponse(User user, boolean isMobile) {
+        String token = jwtUtil.generateToken(user.getId(), user.getPhone(), user.getRole(), isMobile);
         return AuthResponse.builder()
                 .id(user.getId())
                 .firstName(user.getFirstName())

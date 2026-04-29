@@ -21,7 +21,8 @@
       "Bash(grep:*)",
       "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA 2025.3.3/plugins/maven/lib/maven3/bin/mvn\" compile -f /c/Users/ergas/IdeaProjects/teacher-bot-backend/pom.xml)",
       "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA 2025.3.3/plugins/maven/lib/maven3/bin/mvn\" help:effective-pom -f /c/Users/ergas/IdeaProjects/teacher-bot-backend/pom.xml)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(flutter pub:*)"
     ]
   }
 }

@@ -48,4 +48,3 @@ springdoc:
 app:
   jwt:
     secret: 7EDUTeacherBotSecretKeyForJWTTokenGeneration2024VeryLongSecretKey
-    expiration: 86400000  # 24 hours

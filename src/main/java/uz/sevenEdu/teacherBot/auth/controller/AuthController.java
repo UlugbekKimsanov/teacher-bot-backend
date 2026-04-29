@@ -20,7 +20,7 @@ public class AuthController {
 
     @PostMapping("/send-otp")
     public ResponseEntity<ApiResponse<Void>> sendOtp(@Valid @RequestBody OtpRequest request) {
-        authService.sendOtp(request.getEmail());
+        authService.sendOtp(request.getEmail(), request.isLogin());
         return ResponseEntity.ok(ApiResponse.ok("Tasdiqlash kodi yuborildi", null));
     }
 
