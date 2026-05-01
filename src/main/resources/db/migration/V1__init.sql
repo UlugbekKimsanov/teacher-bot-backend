@@ -118,6 +118,19 @@ CREATE TABLE IF NOT EXISTS teacher_questions (
     created_at  TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS books (
+                       id BIGSERIAL PRIMARY KEY,
+                       title VARCHAR(255),
+                       author VARCHAR(255),
+                       category VARCHAR,
+                       description TEXT,
+                       price NUMERIC,
+                       image_id NUMERIC,
+                       file_id NUMERIC ,
+                       created_at TIMESTAMP DEFAULT NOW(),
+                       updated_at TIMESTAMP DEFAULT NOW()
+);
+
 -- Seed data
 INSERT INTO courses (name, category, flag_emoji, hours, lesson_count, goal, is_premium) VALUES
 ('Ingliz tili', 'Chet tillari', '🇬🇧', 15, 42, '0 dan so''zlashuvgacha', true),
