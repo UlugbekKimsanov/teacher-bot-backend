@@ -20,5 +20,7 @@ public class Course {
     private Integer lessonCount;
     private String goal;
     private Boolean isPremium;
+    private String coverImage;
+    private Long languageId;
     private LocalDateTime createdAt;
 }

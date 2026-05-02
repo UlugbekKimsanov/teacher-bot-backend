@@ -10,6 +10,7 @@ public class Lesson {
     @Id private Long id;
     private Long courseId;
     private String title;
+    private String coverImage;
     private String videoUrl;
     private Integer orderIndex;
     private Integer durationSec;

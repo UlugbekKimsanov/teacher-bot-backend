@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./mvnw compile:*)",
+      "Bash(ls mvn* pom.xml)",
+      "Bash(where mvn:*)",
+      "Bash(where mvn.cmd)",
+      "Read(//c/Program Files/JetBrains/**)",
+      "Bash(ls:*)",
+      "Bash(\"C:/Program Files/JetBrains/IntelliJ IDEA 2025.3.3/plugins/maven/lib/maven3/bin/mvn.cmd\" compile -q)",
+      "Bash(flutter analyze:*)"
+    ]
+  }
+}

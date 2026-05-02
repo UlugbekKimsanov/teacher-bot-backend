@@ -7,11 +7,6 @@ spring:
     username: postgres
     password: 1
 
-  flyway:
-    url: jdbc:postgresql://localhost:5432/teacher_bot
-    user: postgres
-    password: 1
-    locations: classpath:db/migration
 
 server:
   port: 8080
@@ -31,3 +26,5 @@ app:
   jwt:
     secret: 7EDUTeacherBotSecretKeyForJWTTokenGeneration2024VeryLongSecretKey
     expiration: 86400000  # 24 hours
+  storage:
+    base-path: ./storage/languages
