@@ -19,5 +19,5 @@ public class UserCourse {
     private Long userId;
     private Long courseId;
     private BigDecimal progress;
-    private LocalDateTime enrolledAt;
+    private LocalDateTime createdAt;
 }

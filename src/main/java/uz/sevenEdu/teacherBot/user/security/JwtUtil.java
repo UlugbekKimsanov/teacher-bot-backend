@@ -1,4 +1,4 @@
-package uz.sevenEdu.teacherBot.auth.security;
+package uz.sevenEdu.teacherBot.user.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;

@@ -1,4 +1,4 @@
-package uz.sevenEdu.teacherBot.auth.security;
+package uz.sevenEdu.teacherBot.user.security;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
