@@ -1,10 +1,9 @@
 package uz.sevenEdu.teacherBot.lesson.repository;
 
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import reactor.core.publisher.Flux;
 import uz.sevenEdu.teacherBot.lesson.entity.Vocabulary;
 
-import java.util.List;
-
-public interface VocabularyRepository extends JpaRepository<Vocabulary, Long> {
-    List<Vocabulary> findByLessonIdOrderByOrderIndex(Long lessonId);
+public interface VocabularyRepository extends ReactiveCrudRepository<Vocabulary, Long> {
+    Flux<Vocabulary> findByLessonIdOrderByOrderIndex(Long lessonId);
 }

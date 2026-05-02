@@ -2,70 +2,64 @@ package uz.sevenEdu.teacherBot.course.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.common.exception.NotFoundException;
 import uz.sevenEdu.teacherBot.course.dto.CourseDto;
 import uz.sevenEdu.teacherBot.course.entity.Course;
 import uz.sevenEdu.teacherBot.course.entity.UserCourse;
 import uz.sevenEdu.teacherBot.course.repository.CourseRepository;
 import uz.sevenEdu.teacherBot.course.repository.UserCourseRepository;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class CourseServiceImpl implements CourseService {
-
     private final CourseRepository courseRepository;
     private final UserCourseRepository userCourseRepository;
 
     @Override
-    public List<CourseDto> getAllCourses(Long userId) {
-        return courseRepository.findAll().stream()
-                .map(course -> enrichWithEnrollment(course, userId))
-                .toList();
+    public Flux<CourseDto> getAllCourses(Long userId) {
+        return courseRepository.findAll().flatMap(course -> enrichWithEnrollment(course, userId));
     }
 
     @Override
-    public CourseDto getCourseById(Long courseId, Long userId) {
-        Course course = courseRepository.findById(courseId)
-                .orElseThrow(() -> new NotFoundException("Kurs topilmadi"));
-        return enrichWithEnrollment(course, userId);
+    public Flux<CourseDto> getCoursesByCategory(String category, Long userId) {
+        return Flux.empty();
     }
 
     @Override
-    public CourseDto enrollCourse(Long userId, Long courseId) {
-        Course course = courseRepository.findById(courseId)
-                .orElseThrow(() -> new NotFoundException("Kurs topilmadi"));
-        if (!userCourseRepository.existsByUserIdAndCourseId(userId, courseId)) {
-            UserCourse uc = UserCourse.builder()
-                    .userId(userId)
-                    .courseId(courseId)
-                    .progress(BigDecimal.ZERO)
-                    .enrolledAt(LocalDateTime.now())
-                    .build();
-            userCourseRepository.save(uc);
-        }
-        return enrichWithEnrollment(course, userId);
+    public Mono<CourseDto> getCourseById(Long courseId, Long userId) {
+        return courseRepository.findById(courseId)
+                .switchIfEmpty(Mono.error(new NotFoundException("Kurs topilmadi")))
+                .flatMap(course -> enrichWithEnrollment(course, userId));
     }
 
-    private CourseDto enrichWithEnrollment(Course course, Long userId) {
-        if (userId == null) {
-            return toDto(course, false, BigDecimal.ZERO);
-        }
+    @Override
+    public Mono<CourseDto> enrollCourse(Long userId, Long courseId) {
+        return courseRepository.findById(courseId)
+                .switchIfEmpty(Mono.error(new NotFoundException("Kurs topilmadi")))
+                .flatMap(course -> userCourseRepository.existsByUserIdAndCourseId(userId, courseId)
+                        .flatMap(exists -> {
+                            if (exists) return Mono.just(course);
+                            UserCourse uc = UserCourse.builder()
+                                    .userId(userId).courseId(courseId)
+                                    .progress(BigDecimal.ZERO).createdAt(LocalDateTime.now()).build();
+                            return userCourseRepository.save(uc).thenReturn(course);
+                        }))
+                .flatMap(course -> enrichWithEnrollment(course, userId));
+    }
+
+    private Mono<CourseDto> enrichWithEnrollment(Course course, Long userId) {
+        if (userId == null) return Mono.just(toDto(course, false, BigDecimal.ZERO));
         return userCourseRepository.findByUserIdAndCourseId(userId, course.getId())
                 .map(uc -> toDto(course, true, uc.getProgress()))
-                .orElse(toDto(course, false, BigDecimal.ZERO));
+                .defaultIfEmpty(toDto(course, false, BigDecimal.ZERO));
     }
 
     private CourseDto toDto(Course c, boolean enrolled, BigDecimal progress) {
-        return CourseDto.builder()
-                .id(c.getId())
-                .name(c.getName())
-                .imageUrl(c.getImage() != null ? c.getImage().getPath() : null)
-                .isEnrolled(enrolled)
-                .progress(progress)
-                .build();
+        return CourseDto.builder().id(c.getId()).name(c.getName())
+                .imageUrl(c.getCoverImage()).isEnrolled(enrolled).progress(progress).build();
     }
 }

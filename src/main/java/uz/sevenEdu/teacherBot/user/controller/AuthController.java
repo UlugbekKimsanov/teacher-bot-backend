@@ -1,36 +1,35 @@
-package uz.sevenEdu.teacherBot.auth.controller;
+package uz.sevenEdu.teacherBot.user.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import uz.sevenEdu.teacherBot.auth.dto.AuthResponse;
-import uz.sevenEdu.teacherBot.auth.dto.LoginRequest;
-import uz.sevenEdu.teacherBot.auth.dto.OtpRequest;
-import uz.sevenEdu.teacherBot.auth.dto.RegisterRequest;
-import uz.sevenEdu.teacherBot.auth.service.AuthService;
+import reactor.core.publisher.Mono;
+import uz.sevenEdu.teacherBot.user.dto.AuthResponse;
+import uz.sevenEdu.teacherBot.user.dto.LoginRequest;
+import uz.sevenEdu.teacherBot.user.dto.OtpRequest;
+import uz.sevenEdu.teacherBot.user.dto.RegisterRequest;
+import uz.sevenEdu.teacherBot.user.service.AuthService;
 import uz.sevenEdu.teacherBot.common.response.ApiResponse;
 
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 public class AuthController {
-
     private final AuthService authService;
 
     @PostMapping("/send-otp")
-    public ResponseEntity<ApiResponse<Void>> sendOtp(@Valid @RequestBody OtpRequest request) {
-        authService.sendOtp(request.getEmail(), request.isLogin());
-        return ResponseEntity.ok(ApiResponse.ok("Tasdiqlash kodi yuborildi", null));
+    public Mono<ApiResponse<Void>> sendOtp(@Valid @RequestBody OtpRequest request) {
+        return authService.sendOtp(request.getEmail(), request.isLogin())
+                .then(Mono.just(ApiResponse.ok("Tasdiqlash kodi yuborildi", null)));
     }
 
     @PostMapping("/register")
-    public ResponseEntity<ApiResponse<AuthResponse>> register(@Valid @RequestBody RegisterRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok(authService.register(request)));
+    public Mono<ApiResponse<AuthResponse>> register(@Valid @RequestBody RegisterRequest request) {
+        return authService.register(request).map(ApiResponse::ok);
     }
 
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok(authService.login(request)));
+    public Mono<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
+        return authService.login(request).map(ApiResponse::ok);
     }
 }

@@ -1,12 +1,11 @@
 package uz.sevenEdu.teacherBot.news.repository;
 
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.r2dbc.repository.Query;
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import reactor.core.publisher.Flux;
 import uz.sevenEdu.teacherBot.news.entity.News;
 
-import java.util.List;
-
-public interface NewsRepository extends JpaRepository<News, Long> {
-    @Query(value = "SELECT * FROM news ORDER BY created_at DESC LIMIT :limit", nativeQuery = true)
-    List<News> findLatest(int limit);
+public interface NewsRepository extends ReactiveCrudRepository<News, Long> {
+    @Query("SELECT * FROM news ORDER BY created_at DESC LIMIT :limit")
+    Flux<News> findLatest(int limit);
 }

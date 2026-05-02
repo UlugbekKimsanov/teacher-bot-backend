@@ -1,43 +1,57 @@
-package uz.sevenEdu.teacherBot.auth.service;
+package uz.sevenEdu.teacherBot.user.service;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
-import uz.sevenEdu.teacherBot.auth.repository.UserRepository;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+import uz.sevenEdu.teacherBot.user.repository.UserRepository;
 import uz.sevenEdu.teacherBot.common.exception.BadRequestException;
-
+import java.time.Duration;
 import java.util.Random;
-import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
 public class OtpService {
-
-    private final StringRedisTemplate redisTemplate;
+    private final ReactiveStringRedisTemplate redisTemplate;
     private final JavaMailSender mailSender;
     private final UserRepository userRepository;
-
     private static final String OTP_PREFIX = "otp:";
     private static final long OTP_TTL_MINUTES = 5;
 
-    public void sendOtp(String email, boolean isLogin) {
-        if (isLogin) {
-            if (!userRepository.existsByEmail(email)) {
-                throw new BadRequestException("Bu email ro'yxatdan o'tmagan!");
-            }
-        } else {
-            if (userRepository.existsByEmail(email)) {
-                throw new BadRequestException("Bu email allaqachon ro'yxatdan o'tgan!");
-            }
-        }
+    public Mono<Void> sendOtp(String email, boolean isLogin) {
+        Mono<Boolean> check = isLogin
+                ? userRepository.existsByEmail(email).flatMap(exists -> exists ? Mono.just(true) : Mono.error(new BadRequestException("Bu email ro'yxatdan o'tmagan!")))
+                : userRepository.existsByEmail(email).flatMap(exists -> exists ? Mono.error(new BadRequestException("Bu email allaqachon ro'yxatdan o'tgan!")) : Mono.just(true));
 
-        String otpCode = generateOtp();
-        redisTemplate.opsForValue().set(OTP_PREFIX + email, otpCode, OTP_TTL_MINUTES, TimeUnit.MINUTES);
+        return check.flatMap(ok -> {
+            String otpCode = generateOtp();
+            return redisTemplate.opsForValue()
+                    .set(OTP_PREFIX + email, otpCode, Duration.ofMinutes(OTP_TTL_MINUTES))
+                    .then(Mono.fromCallable(() -> {
+                        sendEmail(email, otpCode);
+                        return true;
+                    }).subscribeOn(Schedulers.boundedElastic()))
+                    .then();
+        });
+    }
 
+    public Mono<Void> verifyOtp(String email, String otpCode) {
+        return redisTemplate.opsForValue().get(OTP_PREFIX + email)
+                .switchIfEmpty(Mono.error(new BadRequestException("OTP kod topilmadi yoki muddati o'tgan")))
+                .flatMap(storedOtp -> {
+                    if (!storedOtp.equals(otpCode)) {
+                        return Mono.error(new BadRequestException("OTP kod noto'g'ri"));
+                    }
+                    return redisTemplate.delete(OTP_PREFIX + email).then();
+                });
+    }
+
+    private void sendEmail(String email, String otpCode) {
         try {
             MimeMessage mimeMessage = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
@@ -48,17 +62,6 @@ public class OtpService {
         } catch (MessagingException e) {
             throw new BadRequestException("Email yuborishda xatolik yuz berdi");
         }
-    }
-
-    public void verifyOtp(String email, String otpCode) {
-        String storedOtp = redisTemplate.opsForValue().get(OTP_PREFIX + email);
-        if (storedOtp == null) {
-            throw new BadRequestException("OTP kod topilmadi yoki muddati o'tgan");
-        }
-        if (!storedOtp.equals(otpCode)) {
-            throw new BadRequestException("OTP kod noto'g'ri");
-        }
-        redisTemplate.delete(OTP_PREFIX + email);
     }
 
     private String generateOtp() {

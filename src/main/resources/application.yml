@@ -1,27 +1,14 @@
 spring:
   application:
     name: teacher-bot
-
-  datasource:
-    url: jdbc:postgresql://localhost:5432/teacher_bot
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/teacher_bot
     username: postgres
     password: 1
-
-  jpa:
-    hibernate:
-      ddl-auto: validate
-    open-in-view: false
-
-  flyway:
-    locations: classpath:db/migration
-    clean-disabled: false
-    clean-on-validation-error: true
-
   data:
     redis:
       host: localhost
       port: 6379
-
   mail:
     host: smtp.gmail.com
     port: 587
@@ -33,10 +20,8 @@ spring:
           auth: true
           starttls:
             enable: true
-
 server:
   port: 8080
-
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
@@ -44,7 +29,8 @@ springdoc:
     doc-expansion: list
   api-docs:
     path: /v3/api-docs
-
 app:
   jwt:
     secret: 7EDUTeacherBotSecretKeyForJWTTokenGeneration2024VeryLongSecretKey
+  storage:
+    base-path: ./storage

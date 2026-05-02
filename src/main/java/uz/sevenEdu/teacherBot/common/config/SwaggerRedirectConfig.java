@@ -1,14 +1,19 @@
 package uz.sevenEdu.teacherBot.common.config;
 
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
-import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.RouterFunctions;
+import org.springframework.web.reactive.function.server.ServerResponse;
+import java.net.URI;
 
 @Configuration
-public class SwaggerRedirectConfig implements WebMvcConfigurer {
-
-    @Override
-    public void addViewControllers(ViewControllerRegistry registry) {
-        registry.addRedirectViewController("/swagger-ui.html", "/swagger-ui/index.html");
+public class SwaggerRedirectConfig {
+    @Bean
+    public RouterFunction<ServerResponse> swaggerRedirect() {
+        return RouterFunctions.route()
+                .GET("/swagger-ui.html", request ->
+                        ServerResponse.temporaryRedirect(URI.create("/swagger-ui/index.html")).build())
+                .build();
     }
 }

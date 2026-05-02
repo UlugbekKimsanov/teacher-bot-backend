@@ -1,10 +1,9 @@
 package uz.sevenEdu.teacherBot.file.repository;
 
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import reactor.core.publisher.Flux;
 import uz.sevenEdu.teacherBot.file.entity.FileEntity;
 
-import java.util.List;
-
-public interface FileRepository extends JpaRepository<FileEntity, Long> {
-    List<FileEntity> findByLessonId(Long lessonId);
+public interface FileRepository extends ReactiveCrudRepository<FileEntity, Long> {
+    Flux<FileEntity> findByLessonId(Long lessonId);
 }

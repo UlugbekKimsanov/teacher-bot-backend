@@ -2,7 +2,7 @@ package uz.sevenEdu.teacherBot.user.dto;
 
 import lombok.Builder;
 import lombok.Data;
-import uz.sevenEdu.teacherBot.auth.enums.UserRole;
+import uz.sevenEdu.teacherBot.user.enums.UserRole;
 
 @Data
 @Builder

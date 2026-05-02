@@ -2,73 +2,61 @@ package uz.sevenEdu.teacherBot.rating.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import uz.sevenEdu.teacherBot.course.entity.Course;
 import uz.sevenEdu.teacherBot.course.repository.CourseRepository;
 import uz.sevenEdu.teacherBot.rating.dto.RatingDto;
 import uz.sevenEdu.teacherBot.rating.repository.AttendanceRepository;
 import uz.sevenEdu.teacherBot.rating.repository.CertificateRepository;
 import uz.sevenEdu.teacherBot.rating.repository.PointsRepository;
 
-import java.util.List;
-
 @Service
 @RequiredArgsConstructor
 public class RatingServiceImpl implements RatingService {
-
     private final AttendanceRepository attendanceRepository;
     private final PointsRepository pointsRepository;
     private final CertificateRepository certificateRepository;
     private final CourseRepository courseRepository;
 
     @Override
-    public RatingDto.AttendanceDto getAttendance(Long userId, Long courseId) {
-        String courseName = courseRepository.findById(courseId)
-                .map(c -> c.getName()).orElse("Kurs");
-        return RatingDto.AttendanceDto.builder()
-                .courseName(courseName)
-                .weeklyMissed(attendanceRepository.countWeekly(userId, courseId))
-                .monthlyMissed(attendanceRepository.countMonthly(userId, courseId))
-                .quarterlyMissed(attendanceRepository.countQuarterly(userId, courseId))
-                .build();
+    public Mono<RatingDto.AttendanceDto> getAttendance(Long userId, Long courseId) {
+        Mono<String> nameMono = courseRepository.findById(courseId).map(Course::getName).defaultIfEmpty("Kurs");
+        return nameMono.flatMap(courseName ->
+                Mono.zip(
+                        attendanceRepository.countWeekly(userId, courseId),
+                        attendanceRepository.countMonthly(userId, courseId),
+                        attendanceRepository.countQuarterly(userId, courseId)
+                ).map(tuple -> RatingDto.AttendanceDto.builder()
+                        .courseName(courseName)
+                        .weeklyMissed(tuple.getT1()).monthlyMissed(tuple.getT2()).quarterlyMissed(tuple.getT3())
+                        .build()));
     }
 
     @Override
-    public RatingDto.PointsSummary getPoints(Long userId) {
-        var entries = pointsRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
-                .map(p -> RatingDto.PointsSummary.PointEntry.builder()
-                        .activity(p.getActivity()).amount(p.getAmount()).build())
-                .toList();
-        return RatingDto.PointsSummary.builder()
-                .entries(entries)
-                .total(pointsRepository.sumByUserId(userId))
-                .build();
+    public Mono<RatingDto.PointsSummary> getPoints(Long userId) {
+        Mono<java.util.List<RatingDto.PointsSummary.PointEntry>> entriesMono =
+                pointsRepository.findByUserIdOrderByCreatedAtDesc(userId)
+                        .map(p -> RatingDto.PointsSummary.PointEntry.builder().activity(p.getActivity()).amount(p.getAmount()).build())
+                        .collectList();
+        Mono<Long> totalMono = pointsRepository.sumByUserId(userId);
+        return Mono.zip(entriesMono, totalMono)
+                .map(tuple -> RatingDto.PointsSummary.builder().entries(tuple.getT1()).total(tuple.getT2()).build());
     }
 
     @Override
-    public RatingDto.ProgressDto getProgress(Long userId, Long courseId) {
-        String courseName = courseRepository.findById(courseId)
-                .map(c -> c.getName()).orElse("Kurs");
-        return RatingDto.ProgressDto.builder()
-                .courseName(courseName)
-                .vocabularyScore(80)
-                .testScore(100)
-                .questionsScore(40)
-                .maxScore(100)
-                .build();
+    public Mono<RatingDto.ProgressDto> getProgress(Long userId, Long courseId) {
+        return courseRepository.findById(courseId).map(Course::getName).defaultIfEmpty("Kurs")
+                .map(courseName -> RatingDto.ProgressDto.builder()
+                        .courseName(courseName).vocabularyScore(80).testScore(100).questionsScore(40).maxScore(100).build());
     }
 
     @Override
-    public List<RatingDto.CertificateDto> getCertificates(Long userId) {
-        return certificateRepository.findByUserId(userId).stream()
-                .map(cert -> {
-                    String courseName = courseRepository.findById(cert.getCourseId())
-                            .map(c -> c.getName()).orElse("Kurs");
-                    return RatingDto.CertificateDto.builder()
-                            .id(cert.getId())
-                            .courseId(cert.getCourseId())
-                            .courseName(courseName)
-                            .issuedAt(cert.getIssuedAt() != null ? cert.getIssuedAt().toString() : null)
-                            .build();
-                })
-                .toList();
+    public Flux<RatingDto.CertificateDto> getCertificates(Long userId) {
+        return certificateRepository.findByUserId(userId)
+                .flatMap(cert -> courseRepository.findById(cert.getCourseId()).map(Course::getName).defaultIfEmpty("Kurs")
+                        .map(courseName -> RatingDto.CertificateDto.builder()
+                                .id(cert.getId()).courseId(cert.getCourseId()).courseName(courseName)
+                                .issuedAt(cert.getIssuedAt() != null ? cert.getIssuedAt().toString() : null).build()));
     }
 }

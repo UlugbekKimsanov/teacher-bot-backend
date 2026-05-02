@@ -1,38 +1,36 @@
 package uz.sevenEdu.teacherBot.course.controller;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.common.response.ApiResponse;
 import uz.sevenEdu.teacherBot.course.dto.CourseDto;
 import uz.sevenEdu.teacherBot.course.service.CourseService;
-
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/courses")
 @RequiredArgsConstructor
 public class CourseController {
-
     private final CourseService courseService;
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<CourseDto>>> getAllCourses(Authentication auth) {
+    public Mono<ApiResponse<List<CourseDto>>> getAllCourses(Authentication auth) {
         Long userId = getUserId(auth);
-        return ResponseEntity.ok(ApiResponse.ok(courseService.getAllCourses(userId)));
+        return courseService.getAllCourses(userId).collectList().map(ApiResponse::ok);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<CourseDto>> getById(@PathVariable Long id, Authentication auth) {
+    public Mono<ApiResponse<CourseDto>> getById(@PathVariable Long id, Authentication auth) {
         Long userId = getUserId(auth);
-        return ResponseEntity.ok(ApiResponse.ok(courseService.getCourseById(id, userId)));
+        return courseService.getCourseById(id, userId).map(ApiResponse::ok);
     }
 
     @PostMapping("/{id}/enroll")
-    public ResponseEntity<ApiResponse<CourseDto>> enroll(@PathVariable Long id, Authentication auth) {
+    public Mono<ApiResponse<CourseDto>> enroll(@PathVariable Long id, Authentication auth) {
         Long userId = (Long) auth.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.ok(courseService.enrollCourse(userId, id)));
+        return courseService.enrollCourse(userId, id).map(ApiResponse::ok);
     }
 
     private Long getUserId(Authentication auth) {

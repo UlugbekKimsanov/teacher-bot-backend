@@ -1,4 +1,4 @@
-package uz.sevenEdu.teacherBot.auth.dto;
+package uz.sevenEdu.teacherBot.user.dto;
 
 import lombok.Builder;
 import lombok.Data;

@@ -6,6 +6,7 @@ import uz.sevenEdu.teacherBot.user.dto.LoginRequest;
 import uz.sevenEdu.teacherBot.user.dto.RegisterRequest;
 
 public interface AuthService {
+    Mono<Void> sendOtp(String email, boolean isLogin);
     Mono<AuthResponse> register(RegisterRequest request);
     Mono<AuthResponse> login(LoginRequest request);
 }

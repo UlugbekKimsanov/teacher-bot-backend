@@ -1,10 +1,9 @@
 package uz.sevenEdu.teacherBot.lesson.repository;
 
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import reactor.core.publisher.Flux;
 import uz.sevenEdu.teacherBot.lesson.entity.Exercise;
 
-import java.util.List;
-
-public interface ExerciseRepository extends JpaRepository<Exercise, Long> {
-    List<Exercise> findByLessonIdOrderByOrderIndex(Long lessonId);
+public interface ExerciseRepository extends ReactiveCrudRepository<Exercise, Long> {
+    Flux<Exercise> findByLessonIdOrderByOrderIndex(Long lessonId);
 }

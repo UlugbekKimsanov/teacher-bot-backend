@@ -1,20 +1,20 @@
-package uz.sevenEdu.teacherBot.auth.entity;
+package uz.sevenEdu.teacherBot.user.entity;
 
-import jakarta.persistence.*;
 import lombok.*;
-import uz.sevenEdu.teacherBot.auth.enums.UserRole;
+import lombok.experimental.SuperBuilder;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
+import uz.sevenEdu.teacherBot.user.enums.UserRole;
 
 import java.time.LocalDateTime;
 
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-@Entity
-@Table(name = "users")
-public class User {
+@Table("users")
+public class BaseUser {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     private String firstName;
     private String lastName;
@@ -22,7 +22,8 @@ public class User {
     private String phone;
     private String password;
     private String address;
-    @Enumerated(EnumType.STRING)
     private UserRole role;
+    private Long ball;
+    private String specialization;
     private LocalDateTime createdAt;
 }

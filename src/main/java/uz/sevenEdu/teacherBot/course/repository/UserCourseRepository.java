@@ -1,13 +1,12 @@
 package uz.sevenEdu.teacherBot.course.repository;
 
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.course.entity.UserCourse;
 
-import java.util.List;
-import java.util.Optional;
-
-public interface UserCourseRepository extends JpaRepository<UserCourse, Long> {
-    List<UserCourse> findByUserId(Long userId);
-    Optional<UserCourse> findByUserIdAndCourseId(Long userId, Long courseId);
-    boolean existsByUserIdAndCourseId(Long userId, Long courseId);
+public interface UserCourseRepository extends ReactiveCrudRepository<UserCourse, Long> {
+    Flux<UserCourse> findByUserId(Long userId);
+    Mono<UserCourse> findByUserIdAndCourseId(Long userId, Long courseId);
+    Mono<Boolean> existsByUserIdAndCourseId(Long userId, Long courseId);
 }

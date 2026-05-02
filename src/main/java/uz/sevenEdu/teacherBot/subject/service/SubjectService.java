@@ -1,10 +1,10 @@
 package uz.sevenEdu.teacherBot.subject.service;
 
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.subject.dto.SubjectDto;
 
-import java.util.List;
-
 public interface SubjectService {
-    List<SubjectDto> getAllSubjects();
-    SubjectDto getSubjectById(Long subjectId);
+    Flux<SubjectDto> getAllSubjects();
+    Mono<SubjectDto> getSubjectById(Long subjectId);
 }
