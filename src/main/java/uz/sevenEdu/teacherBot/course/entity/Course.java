@@ -17,4 +17,7 @@ public class Course {
     private Long subjectId;
     private Long languageId;
     private String coverImage;
+    private String flagEmoji;
+    private String goal;
+    private Boolean isPremium;
 }

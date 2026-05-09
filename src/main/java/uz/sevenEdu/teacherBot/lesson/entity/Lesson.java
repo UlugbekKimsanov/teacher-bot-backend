@@ -18,4 +18,5 @@ public class Lesson {
     private Integer orderIndex;
     private Integer durationSec;
     private String coverImage;
+    private String videoUrl;
 }

@@ -36,13 +36,32 @@ public class LanguageServiceImpl implements LanguageService {
 
     @Override
     public Flux<Language> getAll() {
-        return languageRepository.findAll();
+        return languageRepository.findAll()
+                .map(this::resolveImageUrls);
     }
 
     @Override
     public Mono<Language> getById(Long id) {
         return languageRepository.findById(id)
-                .switchIfEmpty(Mono.error(new NotFoundException("Til topilmadi")));
+                .switchIfEmpty(Mono.error(new NotFoundException("Til topilmadi")))
+                .map(this::resolveImageUrls);
+    }
+
+    private Language resolveImageUrls(Language lang) {
+        lang.setFlagImage(fileStorageService.toPublicUrl(lang.getFlagImage()));
+        lang.setBackgroundImage(fileStorageService.toPublicUrl(lang.getBackgroundImage()));
+        return lang;
+    }
+
+    @Override
+    public Mono<Language> updateColors(Long id, String colorStart, String colorEnd) {
+        return languageRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Til topilmadi")))
+                .flatMap(lang -> {
+                    lang.setColorStart(colorStart);
+                    lang.setColorEnd(colorEnd);
+                    return languageRepository.save(lang);
+                });
     }
 
     @Override

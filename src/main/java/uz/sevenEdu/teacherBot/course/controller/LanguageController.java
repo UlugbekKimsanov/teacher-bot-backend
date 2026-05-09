@@ -41,4 +41,11 @@ public class LanguageController {
                                                    @RequestPart("file") FilePart file) {
         return languageService.uploadImage(id, fileType, file).map(ApiResponse::ok);
     }
+
+    @PatchMapping("/{id}/colors")
+    public Mono<ApiResponse<Language>> updateColors(@PathVariable Long id,
+                                                    @RequestParam String colorStart,
+                                                    @RequestParam String colorEnd) {
+        return languageService.updateColors(id, colorStart, colorEnd).map(ApiResponse::ok);
+    }
 }

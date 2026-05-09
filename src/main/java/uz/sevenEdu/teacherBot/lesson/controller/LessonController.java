@@ -5,8 +5,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.common.response.ApiResponse;
-import uz.sevenEdu.teacherBot.lesson.dto.LessonDetailDto;
-import uz.sevenEdu.teacherBot.lesson.dto.TestSubmitRequest;
+import uz.sevenEdu.teacherBot.lesson.dto.*;
 import uz.sevenEdu.teacherBot.lesson.service.LessonService;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +32,18 @@ public class LessonController {
     public Mono<ApiResponse<Map<String, Integer>>> submitTest(@PathVariable Long lessonId, @RequestBody TestSubmitRequest request, Authentication auth) {
         Long userId = (Long) auth.getPrincipal();
         return lessonService.submitTest(lessonId, userId, request).map(score -> ApiResponse.ok(Map.of("score", score)));
+    }
+
+    @PostMapping("/lessons/{lessonId}/exercise/submit")
+    public Mono<ApiResponse<Map<String, Integer>>> submitExercise(@PathVariable Long lessonId, @RequestBody ExerciseSubmitRequest request, Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return lessonService.submitExercise(lessonId, userId, request).map(score -> ApiResponse.ok(Map.of("score", score)));
+    }
+
+    @PostMapping("/lessons/{lessonId}/vocab/submit")
+    public Mono<ApiResponse<Void>> submitVocab(@PathVariable Long lessonId, @RequestBody VocabSubmitRequest request, Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return lessonService.submitVocab(lessonId, userId, request).then(Mono.just(ApiResponse.ok("Lug'at natijasi saqlandi", null)));
     }
 
     @PostMapping("/lessons/{lessonId}/ask")

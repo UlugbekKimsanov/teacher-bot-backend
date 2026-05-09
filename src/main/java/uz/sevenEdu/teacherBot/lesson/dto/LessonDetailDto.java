@@ -13,8 +13,13 @@ public class LessonDetailDto {
     private Integer orderIndex;
     private Integer durationSec;
     private boolean completed;
+    private boolean locked;
+    private Integer vocabScore;
+    private Integer testScore;
+    private Integer exerciseScore;
     private List<VocabDto> vocabulary;
     private List<QuestionDto> questions;
+    private List<ExerciseDto> exercises;
 
     @Data @Builder
     public static class VocabDto {
@@ -30,5 +35,14 @@ public class LessonDetailDto {
         private String optionA;
         private String optionB;
         private String optionC;
+    }
+
+    @Data @Builder
+    public static class ExerciseDto {
+        private Long id;
+        private String sentence;
+        private String options;
+        private String correctAnswer;
+        private Integer orderIndex;
     }
 }

@@ -21,6 +21,12 @@ public class CourseController {
         return courseService.getAllCourses(userId).collectList().map(ApiResponse::ok);
     }
 
+    @GetMapping("/category/{category}")
+    public Mono<ApiResponse<List<CourseDto>>> getByCategory(@PathVariable String category, Authentication auth) {
+        Long userId = getUserId(auth);
+        return courseService.getCoursesByCategory(category, userId).collectList().map(ApiResponse::ok);
+    }
+
     @GetMapping("/{id}")
     public Mono<ApiResponse<CourseDto>> getById(@PathVariable Long id, Authentication auth) {
         Long userId = getUserId(auth);

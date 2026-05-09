@@ -19,4 +19,6 @@ public class Language {
     private String backgroundImage;
     private String flagImage;
     private String description;
+    private String colorStart;
+    private String colorEnd;
 }

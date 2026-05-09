@@ -11,4 +11,5 @@ public interface LanguageService {
     Flux<Language> getAll();
     Mono<Language> getById(Long id);
     Mono<Language> uploadImage(Long id, LanguageFileType fileType, FilePart filePart);
+    Mono<Language> updateColors(Long id, String colorStart, String colorEnd);
 }

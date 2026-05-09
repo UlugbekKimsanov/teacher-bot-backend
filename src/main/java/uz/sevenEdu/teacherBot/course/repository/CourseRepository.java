@@ -6,4 +6,5 @@ import uz.sevenEdu.teacherBot.course.entity.Course;
 
 public interface CourseRepository extends ReactiveCrudRepository<Course, Long> {
     Flux<Course> findBySubjectId(Long subjectId);
+    Flux<Course> findByLanguageId(Long languageId);
 }

@@ -49,7 +49,7 @@ public class FileStorageService {
         String typeName = fileType.name().toLowerCase();
         String fileName = languageName + "_" + typeName + "_" + languageId + "_" + uid + ext;
         Path dest = languagePath(languageName, languageId).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(dest.toString());
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
     }
 
     // ── Course ─────────────────────────────────────────────
@@ -74,7 +74,7 @@ public class FileStorageService {
         String uid = UUID.randomUUID().toString().substring(0, 8);
         String fileName = courseName + "_cover_" + courseId + "_" + uid + ext;
         Path dest = coursePath(languageName, languageId, courseName, courseId).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(dest.toString());
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
     }
 
     // ── Lesson ─────────────────────────────────────────────
@@ -105,14 +105,36 @@ public class FileStorageService {
         String fileName = lessonName + "_" + typeName + "_" + lessonId + "_" + uid + ext;
         Path dest = lessonPath(languageName, languageId, courseName, courseId, lessonName, lessonId)
                 .resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(dest.toString());
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
+    // ── Path → URL ─────────────────────────────────────────
+
+    /**
+     * DB dagi path ni public URL ga aylantiradi.
+     * Eski absolute pathlar ham, yangi relative pathlar ham ishlaydi.
+     * Natija: /files/languages/English_1/file.png
+     */
+    public String toPublicUrl(String dbPath) {
+        if (dbPath == null || dbPath.isBlank()) return null;
+        String normalized = dbPath.replace("\\", "/");
+        // Agar absolute path bo'lsa, basePath ni olib tashlaymiz
+        String baseStr = basePath.toString().replace("\\", "/");
+        if (normalized.startsWith(baseStr)) {
+            normalized = normalized.substring(baseStr.length());
+            if (normalized.startsWith("/")) normalized = normalized.substring(1);
+        }
+        return "/files/" + normalized;
     }
 
     // ── File yuklash (GET) ─────────────────────────────────
 
     public Mono<Resource> loadFile(String filePath) {
         return Mono.fromCallable(() -> {
-            Path path = Paths.get(filePath).toAbsolutePath().normalize();
+            Path path = basePath.resolve(filePath).normalize();
+            if (!path.startsWith(basePath)) {
+                throw new RuntimeException("Ruxsat berilmagan yo'l: " + filePath);
+            }
             Resource resource = new UrlResource(path.toUri());
             if (resource.exists() && resource.isReadable()) {
                 return resource;
@@ -124,7 +146,7 @@ public class FileStorageService {
     // ── Path helpers ───────────────────────────────────────
 
     private Path languagePath(String languageName, Long languageId) {
-        return basePath.resolve(languageName + "_" + languageId);
+        return basePath.resolve("languages").resolve(languageName + "_" + languageId);
     }
 
     private Path coursePath(String languageName, Long languageId,
@@ -145,7 +167,11 @@ public class FileStorageService {
     private void deleteIfExists(String oldPath) {
         if (oldPath != null && !oldPath.isBlank()) {
             try {
-                Files.deleteIfExists(Paths.get(oldPath));
+                Path path = Paths.get(oldPath);
+                if (!path.isAbsolute()) {
+                    path = basePath.resolve(oldPath);
+                }
+                Files.deleteIfExists(path);
             } catch (IOException ignored) {
             }
         }
