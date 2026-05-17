@@ -38,4 +38,28 @@ public class RatingController {
         Long userId = (Long) auth.getPrincipal();
         return ratingService.getCertificates(userId).collectList().map(ApiResponse::ok);
     }
+
+    @GetMapping("/streak")
+    public Mono<ApiResponse<RatingDto.StreakDto>> getStreak(Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return ratingService.getStreak(userId).map(ApiResponse::ok);
+    }
+
+    @PostMapping("/streak/record")
+    public Mono<ApiResponse<String>> recordAttendance(Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return ratingService.recordAttendance(userId).thenReturn(ApiResponse.ok("recorded"));
+    }
+
+    @GetMapping("/leaderboard")
+    public Mono<ApiResponse<RatingDto.LeaderboardDto>> getLeaderboard(Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return ratingService.getLeaderboard(userId).map(ApiResponse::ok);
+    }
+
+    @GetMapping("/daily-goals")
+    public Mono<ApiResponse<RatingDto.DailyGoalsDto>> getDailyGoals(Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return ratingService.getDailyGoals(userId).map(ApiResponse::ok);
+    }
 }

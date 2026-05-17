@@ -12,7 +12,7 @@ import org.springframework.data.relational.core.mapping.Table;
 public class Question {
     @Id
     private Long id;
-    private Long lessonId;
+    private Long testId;
     private String questionText;
     private String optionA;
     private String optionB;

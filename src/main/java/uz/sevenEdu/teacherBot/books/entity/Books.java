@@ -19,9 +19,22 @@ public class Books {
     private Long id;
     private String title;
     private String author;
-    private String category;
+    private String category;        // 'digital' or 'print'
     private String description;
-    private Integer price;
+    private Integer price;          // in so'm, 0 = free
+    private String priceLabel;      // e.g. "45,000 so'm"
+    private Boolean isFree;
+    private String emoji;
+    private Integer coverColor1;    // ARGB int
+    private Integer coverColor2;    // ARGB int
+    private String pages;           // e.g. "380 bet"
+    private Integer pageCount;
+    private String format;          // pdf, epub, hardcover, paperback
+    private Double rating;
+    private Integer reviewCount;
+    private String language;
+    private String level;
+    private String previewPages;    // JSON array string
     private Integer imageId;
     private Integer fileId;
     private LocalDateTime createdAt;

@@ -22,8 +22,10 @@ public class BaseUser {
     private String phone;
     private String password;
     private String address;
+    private String avatarUrl;
     private UserRole role;
     private Long ball;
     private String specialization;
+    private String fcmToken;
     private LocalDateTime createdAt;
 }

@@ -11,4 +11,7 @@ public interface PointsRepository extends ReactiveCrudRepository<Points, Long> {
 
     @Query("SELECT COALESCE(SUM(amount),0) FROM points WHERE user_id = :userId")
     Mono<Long> sumByUserId(Long userId);
+
+    @Query("SELECT COALESCE(SUM(amount),0) FROM points WHERE user_id = :userId AND created_at >= CURRENT_DATE")
+    Mono<Long> sumTodayByUserId(Long userId);
 }

@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
+import uz.sevenEdu.teacherBot.common.exception.UnauthorizedException;
 import uz.sevenEdu.teacherBot.common.response.ApiResponse;
 import uz.sevenEdu.teacherBot.lesson.dto.*;
 import uz.sevenEdu.teacherBot.lesson.service.LessonService;
@@ -30,29 +31,34 @@ public class LessonController {
 
     @PostMapping("/lessons/{lessonId}/test/submit")
     public Mono<ApiResponse<Map<String, Integer>>> submitTest(@PathVariable Long lessonId, @RequestBody TestSubmitRequest request, Authentication auth) {
-        Long userId = (Long) auth.getPrincipal();
+        Long userId = requireAuth(auth);
         return lessonService.submitTest(lessonId, userId, request).map(score -> ApiResponse.ok(Map.of("score", score)));
     }
 
     @PostMapping("/lessons/{lessonId}/exercise/submit")
     public Mono<ApiResponse<Map<String, Integer>>> submitExercise(@PathVariable Long lessonId, @RequestBody ExerciseSubmitRequest request, Authentication auth) {
-        Long userId = (Long) auth.getPrincipal();
+        Long userId = requireAuth(auth);
         return lessonService.submitExercise(lessonId, userId, request).map(score -> ApiResponse.ok(Map.of("score", score)));
     }
 
     @PostMapping("/lessons/{lessonId}/vocab/submit")
     public Mono<ApiResponse<Void>> submitVocab(@PathVariable Long lessonId, @RequestBody VocabSubmitRequest request, Authentication auth) {
-        Long userId = (Long) auth.getPrincipal();
+        Long userId = requireAuth(auth);
         return lessonService.submitVocab(lessonId, userId, request).then(Mono.just(ApiResponse.ok("Lug'at natijasi saqlandi", null)));
     }
 
     @PostMapping("/lessons/{lessonId}/ask")
     public Mono<ApiResponse<Void>> askTeacher(@PathVariable Long lessonId, @RequestBody Map<String, String> body, Authentication auth) {
-        Long userId = (Long) auth.getPrincipal();
+        Long userId = requireAuth(auth);
         return lessonService.askTeacher(lessonId, userId, body.get("question")).then(Mono.just(ApiResponse.ok("Savol yuborildi", null)));
     }
 
     private Long getUserId(Authentication auth) {
         return auth != null ? (Long) auth.getPrincipal() : null;
+    }
+
+    private Long requireAuth(Authentication auth) {
+        if (auth == null) throw new UnauthorizedException("Tizimga kirish talab etiladi");
+        return (Long) auth.getPrincipal();
     }
 }

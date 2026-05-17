@@ -6,11 +6,20 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.course.entity.Course;
 import uz.sevenEdu.teacherBot.course.repository.CourseRepository;
+import uz.sevenEdu.teacherBot.course.repository.UserCourseRepository;
 import uz.sevenEdu.teacherBot.lesson.repository.UserLessonRepository;
 import uz.sevenEdu.teacherBot.rating.dto.RatingDto;
 import uz.sevenEdu.teacherBot.rating.repository.AttendanceRepository;
 import uz.sevenEdu.teacherBot.rating.repository.CertificateRepository;
 import uz.sevenEdu.teacherBot.rating.repository.PointsRepository;
+import uz.sevenEdu.teacherBot.user.entity.BaseUser;
+import uz.sevenEdu.teacherBot.user.enums.UserRole;
+import uz.sevenEdu.teacherBot.user.repository.UserRepository;
+
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -20,6 +29,8 @@ public class RatingServiceImpl implements RatingService {
     private final CertificateRepository certificateRepository;
     private final CourseRepository courseRepository;
     private final UserLessonRepository userLessonRepository;
+    private final UserCourseRepository userCourseRepository;
+    private final UserRepository userRepository;
 
     @Override
     public Mono<RatingDto.AttendanceDto> getAttendance(Long userId, Long courseId) {
@@ -93,5 +104,138 @@ public class RatingServiceImpl implements RatingService {
                                 .courseName(courseName)
                                 .issuedAt(cert.getIssuedAt() != null ? cert.getIssuedAt().toString() : null)
                                 .build()));
+    }
+
+    @Override
+    public Mono<RatingDto.StreakDto> getStreak(Long userId) {
+        return attendanceRepository.findDistinctDatesByUserId(userId)
+                .collectList()
+                .map(dates -> {
+                    // dates are sorted DESC
+                    int currentStreak = 0;
+                    int longestStreak = 0;
+                    int tempStreak = 0;
+
+                    // Calculate current streak (consecutive days ending today or yesterday)
+                    LocalDate today = LocalDate.now();
+                    if (!dates.isEmpty()) {
+                        LocalDate expected = today;
+                        // Allow streak to start from today or yesterday
+                        if (!dates.contains(today) && dates.contains(today.minusDays(1))) {
+                            expected = today.minusDays(1);
+                        }
+                        for (LocalDate d : dates) {
+                            if (d.equals(expected)) {
+                                currentStreak++;
+                                expected = expected.minusDays(1);
+                            } else if (d.isBefore(expected)) {
+                                break;
+                            }
+                        }
+                    }
+
+                    // Calculate longest streak
+                    List<LocalDate> sorted = new ArrayList<>(dates);
+                    sorted.sort(Comparator.naturalOrder());
+                    for (int i = 0; i < sorted.size(); i++) {
+                        if (i == 0 || sorted.get(i).equals(sorted.get(i - 1).plusDays(1))) {
+                            tempStreak++;
+                        } else {
+                            tempStreak = 1;
+                        }
+                        longestStreak = Math.max(longestStreak, tempStreak);
+                    }
+
+                    // Last 30 studied days as ISO strings
+                    LocalDate thirtyAgo = today.minusDays(30);
+                    List<String> studiedDays = dates.stream()
+                            .filter(d -> !d.isBefore(thirtyAgo))
+                            .map(LocalDate::toString)
+                            .collect(Collectors.toList());
+
+                    // Week days bitmask [Mon..Sun]
+                    LocalDate monday = today.with(DayOfWeek.MONDAY);
+                    Set<LocalDate> dateSet = new HashSet<>(dates);
+                    List<Boolean> weekDays = new ArrayList<>(7);
+                    for (int i = 0; i < 7; i++) {
+                        weekDays.add(dateSet.contains(monday.plusDays(i)));
+                    }
+
+                    return RatingDto.StreakDto.builder()
+                            .currentStreak(currentStreak)
+                            .longestStreak(longestStreak)
+                            .studiedDays(studiedDays)
+                            .weekDays(weekDays)
+                            .build();
+                });
+    }
+
+    @Override
+    public Mono<Void> recordAttendance(Long userId) {
+        return userCourseRepository.findByUserId(userId)
+                .flatMap(uc -> attendanceRepository.recordToday(userId, uc.getCourseId()))
+                .then();
+    }
+
+    @Override
+    public Mono<RatingDto.LeaderboardDto> getLeaderboard(Long currentUserId) {
+        return userRepository.findByRole("STUDENT")
+                .flatMap(user -> pointsRepository.sumByUserId(user.getId())
+                        .map(total -> Map.entry(user, total.intValue())))
+                .collectSortedList((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                .map(sorted -> {
+                    List<RatingDto.LeaderboardDto.LeaderboardEntry> entries = new ArrayList<>();
+                    int myRank = 0;
+                    for (int i = 0; i < sorted.size() && i < 50; i++) {
+                        var entry = sorted.get(i);
+                        BaseUser u = entry.getKey();
+                        boolean isMe = u.getId().equals(currentUserId);
+                        if (isMe) myRank = i + 1;
+                        String initials = ((u.getFirstName() != null ? u.getFirstName().substring(0, 1) : "") +
+                                (u.getLastName() != null ? u.getLastName().substring(0, 1) : "")).toUpperCase();
+                        entries.add(RatingDto.LeaderboardDto.LeaderboardEntry.builder()
+                                .rank(i + 1)
+                                .name((u.getFirstName() != null ? u.getFirstName() : "") + " " +
+                                      (u.getLastName() != null ? u.getLastName() : ""))
+                                .points(entry.getValue())
+                                .isMe(isMe)
+                                .avatarInitials(initials)
+                                .build());
+                    }
+                    // If user not in top 50, find their rank
+                    if (myRank == 0) {
+                        for (int i = 0; i < sorted.size(); i++) {
+                            if (sorted.get(i).getKey().getId().equals(currentUserId)) {
+                                myRank = i + 1;
+                                break;
+                            }
+                        }
+                    }
+                    return RatingDto.LeaderboardDto.builder()
+                            .entries(entries)
+                            .myRank(myRank)
+                            .build();
+                });
+    }
+
+    @Override
+    public Mono<RatingDto.DailyGoalsDto> getDailyGoals(Long userId) {
+        Mono<Long> lessonsDone = userLessonRepository.findByUserId(userId)
+                .filter(ul -> Boolean.TRUE.equals(ul.getIsCompleted()) &&
+                        ul.getCompletedAt() != null &&
+                        ul.getCompletedAt().toLocalDate().equals(LocalDate.now()))
+                .count();
+
+        Mono<Long> todayPoints = pointsRepository.sumTodayByUserId(userId);
+
+        return Mono.zip(lessonsDone, todayPoints)
+                .map(tuple -> RatingDto.DailyGoalsDto.builder()
+                        .lessonsGoal(3)
+                        .lessonsDone(tuple.getT1().intValue())
+                        .minutesGoal(30)
+                        .minutesDone(tuple.getT1().intValue() * 6) // ~6 min per lesson
+                        .wordsGoal(20)
+                        .wordsDone(tuple.getT1().intValue() * 10) // ~10 words per lesson
+                        .build());
     }
 }

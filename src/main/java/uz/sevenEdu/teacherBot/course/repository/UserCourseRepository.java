@@ -9,4 +9,7 @@ public interface UserCourseRepository extends ReactiveCrudRepository<UserCourse,
     Flux<UserCourse> findByUserId(Long userId);
     Mono<UserCourse> findByUserIdAndCourseId(Long userId, Long courseId);
     Mono<Boolean> existsByUserIdAndCourseId(Long userId, Long courseId);
+    Flux<UserCourse> findByCourseId(Long courseId);
+    Flux<UserCourse> findByCourseIdIn(java.util.Collection<Long> courseIds);
+    Mono<Long> countByCourseId(Long courseId);
 }

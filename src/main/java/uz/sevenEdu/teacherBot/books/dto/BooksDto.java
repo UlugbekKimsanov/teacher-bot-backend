@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @Builder
@@ -14,6 +15,19 @@ public class BooksDto {
     private String category;
     private String description;
     private Integer price;
+    private String priceLabel;
+    private Boolean isFree;
+    private String emoji;
+    private List<Integer> coverColors;
+    private String pages;
+    private Integer pageCount;
+    private String format;
+    private Double rating;
+    private Integer reviewCount;
+    private String language;
+    private String level;
+    private List<String> previewPages;
+    private Boolean isPurchased;
     private Integer imageId;
     private Integer fileId;
     private LocalDateTime createdAt;

@@ -1,11 +1,14 @@
 package uz.sevenEdu.teacherBot.books.controller;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.books.dto.BooksDto;
 import uz.sevenEdu.teacherBot.books.service.BooksService;
+import uz.sevenEdu.teacherBot.common.response.ApiResponse;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/books")
@@ -13,28 +16,59 @@ import uz.sevenEdu.teacherBot.books.service.BooksService;
 public class BooksController {
     private final BooksService booksService;
 
-    @GetMapping
-    public Flux<BooksDto> getAll() {
-        return booksService.getAllBooks();
+    @GetMapping("/category/{category}")
+    public Mono<ApiResponse<List<BooksDto>>> getByCategory(
+            @PathVariable String category, Authentication auth) {
+        Long userId = getUserId(auth);
+        return booksService.getBooksByCategory(category, userId)
+                .collectList().map(ApiResponse::ok);
     }
 
     @GetMapping("/{id}")
-    public Mono<BooksDto> getById(@PathVariable Long id) {
-        return booksService.getBookById(id);
+    public Mono<ApiResponse<BooksDto>> getById(
+            @PathVariable Long id, Authentication auth) {
+        Long userId = getUserId(auth);
+        return booksService.getBookById(id, userId).map(ApiResponse::ok);
+    }
+
+    @PostMapping("/{id}/purchase")
+    public Mono<ApiResponse<String>> purchase(
+            @PathVariable Long id, Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return booksService.purchaseBook(userId, id)
+                .then(Mono.just(ApiResponse.ok("Kitob sotib olindi", null)));
+    }
+
+    @GetMapping("/my")
+    public Mono<ApiResponse<List<BooksDto>>> myBooks(Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return booksService.getMyBooks(userId).collectList().map(ApiResponse::ok);
+    }
+
+    // ── Admin endpoints ──────────────────────────────────────────
+
+    @GetMapping
+    public Mono<ApiResponse<List<BooksDto>>> getAll() {
+        return booksService.getAllBooks().collectList().map(ApiResponse::ok);
     }
 
     @PostMapping
-    public Mono<BooksDto> create(@RequestBody BooksDto dto) {
-        return booksService.createBook(dto);
+    public Mono<ApiResponse<BooksDto>> create(@RequestBody BooksDto dto) {
+        return booksService.createBook(dto).map(ApiResponse::ok);
     }
 
     @PutMapping("/{id}")
-    public Mono<BooksDto> update(@PathVariable Long id, @RequestBody BooksDto dto) {
-        return booksService.updateBook(id, dto);
+    public Mono<ApiResponse<BooksDto>> update(
+            @PathVariable Long id, @RequestBody BooksDto dto) {
+        return booksService.updateBook(id, dto).map(ApiResponse::ok);
     }
 
     @DeleteMapping("/{id}")
-    public Mono<BooksDto> delete(@PathVariable Long id) {
-        return booksService.deleteBookAndReturn(id);
+    public Mono<ApiResponse<BooksDto>> delete(@PathVariable Long id) {
+        return booksService.deleteBookAndReturn(id).map(ApiResponse::ok);
+    }
+
+    private Long getUserId(Authentication auth) {
+        return auth != null ? (Long) auth.getPrincipal() : null;
     }
 }

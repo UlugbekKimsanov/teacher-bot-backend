@@ -14,4 +14,7 @@ public interface LessonRepository extends ReactiveCrudRepository<Lesson, Long> {
 
     @Query("SELECT COALESCE(SUM(duration_sec), 0) FROM lessons WHERE course_id = :courseId")
     Mono<Long> sumDurationByCourseId(Long courseId);
+
+    @Query("SELECT * FROM lessons WHERE course_id = :courseId AND order_index > :orderIndex ORDER BY order_index ASC LIMIT 1")
+    Mono<Lesson> findNextLessonInCourse(Long courseId, Integer orderIndex);
 }

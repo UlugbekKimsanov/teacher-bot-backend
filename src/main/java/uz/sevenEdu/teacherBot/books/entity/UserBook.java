@@ -1,0 +1,24 @@
+package uz.sevenEdu.teacherBot.books.entity;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
+
+import java.time.LocalDateTime;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@Table("user_books")
+public class UserBook {
+    @Id
+    private Long id;
+    private Long userId;
+    private Long bookId;
+    private String paymentMethod;
+    private LocalDateTime purchasedAt;
+}

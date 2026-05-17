@@ -9,4 +9,8 @@ public interface RatingService {
     Mono<RatingDto.PointsSummary> getPoints(Long userId);
     Mono<RatingDto.ProgressDto> getProgress(Long userId, Long courseId);
     Flux<RatingDto.CertificateDto> getCertificates(Long userId);
+    Mono<RatingDto.StreakDto> getStreak(Long userId);
+    Mono<Void> recordAttendance(Long userId);
+    Mono<RatingDto.LeaderboardDto> getLeaderboard(Long userId);
+    Mono<RatingDto.DailyGoalsDto> getDailyGoals(Long userId);
 }

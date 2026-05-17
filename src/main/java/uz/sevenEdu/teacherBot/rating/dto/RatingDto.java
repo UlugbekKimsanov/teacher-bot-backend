@@ -42,4 +42,39 @@ public class RatingDto {
         private String courseName;
         private String issuedAt;
     }
+
+    @Data @Builder
+    public static class StreakDto {
+        private int currentStreak;
+        private int longestStreak;
+        /** ISO date strings of studied days (last 30) */
+        private List<String> studiedDays;
+        /** Weekday bitmask [Mon..Sun] — true = studied */
+        private List<Boolean> weekDays;
+    }
+
+    @Data @Builder
+    public static class LeaderboardDto {
+        private List<LeaderboardEntry> entries;
+        private int myRank;
+
+        @Data @Builder
+        public static class LeaderboardEntry {
+            private int rank;
+            private String name;
+            private int points;
+            private boolean isMe;
+            private String avatarInitials;
+        }
+    }
+
+    @Data @Builder
+    public static class DailyGoalsDto {
+        private int lessonsGoal;
+        private int lessonsDone;
+        private int minutesGoal;
+        private int minutesDone;
+        private int wordsGoal;
+        private int wordsDone;
+    }
 }

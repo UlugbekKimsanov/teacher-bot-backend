@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.common.exception.NotFoundException;
+import uz.sevenEdu.teacherBot.common.service.FileStorageService;
 import uz.sevenEdu.teacherBot.course.repository.UserCourseRepository;
 import uz.sevenEdu.teacherBot.lesson.dto.*;
 import uz.sevenEdu.teacherBot.lesson.entity.Lesson;
@@ -24,6 +25,7 @@ public class LessonServiceImpl implements LessonService {
     private final TeacherQuestionRepository teacherQuestionRepository;
     private final UserLessonRepository userLessonRepository;
     private final UserCourseRepository userCourseRepository;
+    private final FileStorageService fileStorageService;
 
     @Override
     public Flux<LessonDetailDto> getLessonsByCourse(Long courseId, Long userId) {
@@ -80,22 +82,34 @@ public class LessonServiceImpl implements LessonService {
                                 .defaultIfEmpty(UserLesson.builder().build())
                             : Mono.just(UserLesson.builder().build());
 
+                    Mono<Long> nextLessonIdMono = lessonRepository
+                            .findNextLessonInCourse(lesson.getCourseId(), lesson.getOrderIndex())
+                            .map(Lesson::getId)
+                            .defaultIfEmpty(0L);
+
                     return Mono.zip(
                             vocabularyRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
                             questionRepository.findByLessonId(lessonId).collectList(),
                             exerciseRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
-                            ulMono
-                    ).map(tuple -> LessonDetailDto.builder()
+                            ulMono,
+                            nextLessonIdMono
+                    ).map(tuple -> {
+                        Long nextId = tuple.getT5() == 0L ? null : tuple.getT5();
+                        UserLesson ul = tuple.getT4();
+                        boolean completed = ul.getIsCompleted() != null && ul.getIsCompleted();
+                        return LessonDetailDto.builder()
                             .id(lesson.getId())
                             .courseId(lesson.getCourseId())
                             .title(lesson.getName())
+                            .coverImage(fileStorageService.toPublicUrl(lesson.getCoverImage()))
                             .videoUrl(lesson.getVideoUrl())
                             .orderIndex(lesson.getOrderIndex())
                             .durationSec(lesson.getDurationSec())
-                            .completed(tuple.getT4().getIsCompleted() != null && tuple.getT4().getIsCompleted())
-                            .vocabScore(tuple.getT4().getVocabScore())
-                            .testScore(tuple.getT4().getTestScore())
-                            .exerciseScore(tuple.getT4().getExerciseScore())
+                            .completed(completed)
+                            .vocabScore(ul.getVocabScore())
+                            .testScore(ul.getTestScore())
+                            .exerciseScore(ul.getExerciseScore())
+                            .nextLessonId(completed ? nextId : null)
                             .vocabulary(tuple.getT1().stream().map(v -> LessonDetailDto.VocabDto.builder()
                                     .id(v.getId()).phraseUz(v.getTranslationUz()).phraseEn(v.getTranslationTarget()).build()).toList())
                             .questions(tuple.getT2().stream().map(q -> LessonDetailDto.QuestionDto.builder()
@@ -104,7 +118,8 @@ public class LessonServiceImpl implements LessonService {
                             .exercises(tuple.getT3().stream().map(e -> LessonDetailDto.ExerciseDto.builder()
                                     .id(e.getId()).sentence(e.getSentence()).options(e.getOptions())
                                     .correctAnswer(e.getCorrectAnswer()).orderIndex(e.getOrderIndex()).build()).toList())
-                            .build());
+                            .build();
+                    });
                 });
     }
 
@@ -165,9 +180,13 @@ public class LessonServiceImpl implements LessonService {
 
     private Mono<UserLesson> getOrCreateUserLesson(Long userId, Long lessonId) {
         return userLessonRepository.findByUserIdAndLessonId(userId, lessonId)
-                .switchIfEmpty(userLessonRepository.save(UserLesson.builder()
-                        .userId(userId).lessonId(lessonId)
-                        .isCompleted(false).vocabScore(0).testScore(0).exerciseScore(0).build()));
+                .switchIfEmpty(Mono.defer(() ->
+                        userLessonRepository.save(UserLesson.builder()
+                                .userId(userId).lessonId(lessonId)
+                                .isCompleted(false).build())
+                        .onErrorResume(e ->
+                                userLessonRepository.findByUserIdAndLessonId(userId, lessonId))
+                ));
     }
 
     private Mono<Void> checkAndComplete(UserLesson ul, Long lessonId) {
@@ -182,9 +201,9 @@ public class LessonServiceImpl implements LessonService {
             long totalExercises = tuple.getT3();
 
             // 50% threshold for each component (at least 1 correct if there's content)
-            boolean vocabPassed = totalVocab == 0 || ul.getVocabScore() >= Math.max(1, totalVocab / 2);
-            boolean testPassed = totalQuestions == 0 || ul.getTestScore() >= Math.max(1, totalQuestions / 2);
-            boolean exercisePassed = totalExercises == 0 || ul.getExerciseScore() >= Math.max(1, totalExercises / 2);
+            boolean vocabPassed    = totalVocab     == 0 || (ul.getVocabScore()    != null && ul.getVocabScore()    >= Math.max(1, totalVocab     / 2));
+            boolean testPassed     = totalQuestions == 0 || (ul.getTestScore()     != null && ul.getTestScore()     >= Math.max(1, totalQuestions / 2));
+            boolean exercisePassed = totalExercises == 0 || (ul.getExerciseScore() != null && ul.getExerciseScore() >= Math.max(1, totalExercises / 2));
 
             if (vocabPassed && testPassed && exercisePassed) {
                 ul.setIsCompleted(true);
@@ -197,6 +216,7 @@ public class LessonServiceImpl implements LessonService {
     private LessonDetailDto buildBasicDto(Lesson l, boolean unlocked, boolean completed, UserLesson ul) {
         return LessonDetailDto.builder()
                 .id(l.getId()).courseId(l.getCourseId()).title(l.getName())
+                .coverImage(fileStorageService.toPublicUrl(l.getCoverImage()))
                 .orderIndex(l.getOrderIndex()).durationSec(l.getDurationSec())
                 .locked(!unlocked).completed(completed)
                 .vocabScore(ul != null ? ul.getVocabScore() : null)
