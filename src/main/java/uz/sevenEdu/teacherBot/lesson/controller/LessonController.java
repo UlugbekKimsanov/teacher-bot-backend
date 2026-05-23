@@ -30,21 +30,21 @@ public class LessonController {
     }
 
     @PostMapping("/lessons/{lessonId}/test/submit")
-    public Mono<ApiResponse<Map<String, Integer>>> submitTest(@PathVariable Long lessonId, @RequestBody TestSubmitRequest request, Authentication auth) {
+    public Mono<ApiResponse<SubmitResultDto>> submitTest(@PathVariable Long lessonId, @RequestBody TestSubmitRequest request, Authentication auth) {
         Long userId = requireAuth(auth);
-        return lessonService.submitTest(lessonId, userId, request).map(score -> ApiResponse.ok(Map.of("score", score)));
+        return lessonService.submitTest(lessonId, userId, request).map(ApiResponse::ok);
     }
 
     @PostMapping("/lessons/{lessonId}/exercise/submit")
-    public Mono<ApiResponse<Map<String, Integer>>> submitExercise(@PathVariable Long lessonId, @RequestBody ExerciseSubmitRequest request, Authentication auth) {
+    public Mono<ApiResponse<SubmitResultDto>> submitExercise(@PathVariable Long lessonId, @RequestBody ExerciseSubmitRequest request, Authentication auth) {
         Long userId = requireAuth(auth);
-        return lessonService.submitExercise(lessonId, userId, request).map(score -> ApiResponse.ok(Map.of("score", score)));
+        return lessonService.submitExercise(lessonId, userId, request).map(ApiResponse::ok);
     }
 
     @PostMapping("/lessons/{lessonId}/vocab/submit")
-    public Mono<ApiResponse<Void>> submitVocab(@PathVariable Long lessonId, @RequestBody VocabSubmitRequest request, Authentication auth) {
+    public Mono<ApiResponse<SubmitResultDto>> submitVocab(@PathVariable Long lessonId, @RequestBody VocabSubmitRequest request, Authentication auth) {
         Long userId = requireAuth(auth);
-        return lessonService.submitVocab(lessonId, userId, request).then(Mono.just(ApiResponse.ok("Lug'at natijasi saqlandi", null)));
+        return lessonService.submitVocab(lessonId, userId, request).map(ApiResponse::ok);
     }
 
     @PostMapping("/lessons/{lessonId}/ask")

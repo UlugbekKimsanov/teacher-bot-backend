@@ -1,0 +1,45 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]
+   /Contents 5 0 R /Resources << /Font << /F1 7 0 R >> >> >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]
+   /Contents 6 0 R /Resources << /Font << /F1 7 0 R >> >> >>
+endobj
+5 0 obj
+<< /Length 90 >>
+stream
+BT /F1 24 Tf 130 700 Td (Uzbek-English Dictionary) Tj 0 -40 Td /F1 14 Tf (OAZIS Kutubxona) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Length 150 >>
+stream
+BT /F1 14 Tf 72 750 Td (A) Tj 0 -25 Td /F1 12 Tf (Arzon - Cheap) Tj 0 -20 Td (Aql - Mind) Tj 0 -20 Td (Aholi - Population) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000111 00000 n 
+0000000262 00000 n 
+0000000413 00000 n 
+0000000555 00000 n 
+0000000757 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+830
+%%EOF

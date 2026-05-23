@@ -8,6 +8,7 @@ import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.common.enums.LanguageFileType;
 import uz.sevenEdu.teacherBot.common.exception.BadRequestException;
 import uz.sevenEdu.teacherBot.common.exception.NotFoundException;
+import uz.sevenEdu.teacherBot.course.entity.Course;
 import uz.sevenEdu.teacherBot.common.service.FileStorageService;
 import uz.sevenEdu.teacherBot.course.entity.Language;
 import uz.sevenEdu.teacherBot.course.repository.LanguageRepository;
@@ -17,6 +18,8 @@ import uz.sevenEdu.teacherBot.course.repository.LanguageRepository;
 public class LanguageServiceImpl implements LanguageService {
 
     private final LanguageRepository languageRepository;
+    private final uz.sevenEdu.teacherBot.course.repository.CourseRepository courseRepository;
+    private final uz.sevenEdu.teacherBot.course.repository.UserCourseRepository userCourseRepository;
     private final FileStorageService fileStorageService;
 
     @Override
@@ -37,7 +40,30 @@ public class LanguageServiceImpl implements LanguageService {
     @Override
     public Flux<Language> getAll() {
         return languageRepository.findAll()
-                .map(this::resolveImageUrls);
+                .flatMap(lang -> {
+                    Mono<java.util.List<Course>> coursesMono = courseRepository
+                            .findByLanguageId(lang.getId()).collectList();
+                    return coursesMono.flatMap(courses -> {
+                        Language resolved = resolveImageUrls(lang);
+                        resolved.setCourseCount(courses.size());
+                        if (courses.isEmpty()) {
+                            resolved.setStudentCount(0);
+                            return Mono.just(resolved);
+                        }
+                        java.util.List<Long> courseIds = courses.stream()
+                                .map(Course::getId).toList();
+                        return userCourseRepository.findByCourseIdIn(courseIds)
+                                .map(uc -> uc.getUserId())
+                                .distinct()
+                                .count()
+                                .map(studentCount -> {
+                                    resolved.setStudentCount(studentCount);
+                                    return resolved;
+                                });
+                    });
+                })
+                .collectSortedList((a, b) -> Long.compare(b.getStudentCount(), a.getStudentCount()))
+                .flatMapMany(Flux::fromIterable);
     }
 
     @Override

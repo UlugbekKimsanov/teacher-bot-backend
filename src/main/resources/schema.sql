@@ -197,8 +197,8 @@ ALTER TABLE user_lessons ALTER COLUMN exercise_score DROP DEFAULT;
 
 -- Test user (password = "password")
 INSERT INTO users (id, first_name, last_name, email, phone, password, role, ball)
-VALUES (1, 'Test', 'Student', 'test@test.com', '+998901234567', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'STUDENT', 100)
-ON CONFLICT (id) DO NOTHING;
+VALUES (1, 'Test', 'Student', 'test@test.com', '+998901234567', '$2a$10$nYv8BK48mD2iAzR4X3OibeEvAG777fl46h2YU/MdvZiDO5Un4g2si', 'STUDENT', 100)
+ON CONFLICT (id) DO UPDATE SET password = EXCLUDED.password;
 
 -- Languages
 INSERT INTO languages (id, name, flag_image, background_image, description, color_start, color_end)
@@ -801,6 +801,7 @@ CREATE TABLE IF NOT EXISTS books (
     preview_pages   TEXT,                 -- JSON array
     image_id        INTEGER,
     file_id         INTEGER,
+    file_path       VARCHAR(500),
     created_at      TIMESTAMP DEFAULT NOW(),
     updated_at      TIMESTAMP
 );
@@ -810,67 +811,94 @@ CREATE TABLE IF NOT EXISTS user_books (
     user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     book_id         BIGINT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
     payment_method  VARCHAR(50),
+    is_active       BOOLEAN DEFAULT TRUE,
+    read_page       INTEGER DEFAULT 0,
+    total_pages     INTEGER DEFAULT 0,
     purchased_at    TIMESTAMP DEFAULT NOW(),
     UNIQUE (user_id, book_id)
 );
 
 -- ═══════════════════════════════════════════════════════
+-- MIGRATE: Add file_path column to books (for existing DBs)
+-- ═══════════════════════════════════════════════════════
+ALTER TABLE books ADD COLUMN IF NOT EXISTS file_path VARCHAR(500);
+ALTER TABLE user_books ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+ALTER TABLE user_books ADD COLUMN IF NOT EXISTS read_page INTEGER DEFAULT 0;
+ALTER TABLE user_books ADD COLUMN IF NOT EXISTS total_pages INTEGER DEFAULT 0;
+
+-- ═══════════════════════════════════════════════════════
 -- BOOKS SEED DATA
 -- ═══════════════════════════════════════════════════════
 
-INSERT INTO books (id, title, author, category, description, price, price_label, is_free, emoji, cover_color1, cover_color2, pages, page_count, format, rating, review_count, language, level, preview_pages) VALUES
+INSERT INTO books (id, title, author, category, description, price, price_label, is_free, emoji, cover_color1, cover_color2, pages, page_count, format, rating, review_count, language, level, preview_pages, file_path) VALUES
 -- Digital books
 (1,  'English Grammar In Use', 'Raymond Murphy', 'digital',
  'Ingliz tili grammatikasini o''rganuvchilar uchun eng ko''p sotilgan kitob. Amaliy mashqlar, misollar va aniq tushuntirishlar bilan to''ldirilgan. Cambridge University Press tomonidan nashr etilgan.',
  0, 'Bepul', true, '📗', 769671790, 528237397, '380 bet', 380, 'pdf', 4.9, 1240, 'Ingliz', 'O''rta',
- '["Grammatika — mavzular ro''yxati","Present Simple: Men har kuni maktabga boraman.","Past Simple: Kecha men filmga bordim.","Future Simple: Ertaga men do''stim bilan uchrashaman."]'),
+ '["Grammatika — mavzular ro''yxati","Present Simple: Men har kuni maktabga boraman.","Past Simple: Kecha men filmga bordim.","Future Simple: Ertaga men do''stim bilan uchrashaman."]',
+ 'books/english_grammar.pdf'),
 
 (2,  'Oxford Word Skills', 'Ruth Gairns', 'digital',
  'Ingliz lug''atini tizimli ravishda kengaytirish uchun ideal kitob. 3 darajada (Boshlang''ich, O''rta, Ilg''or) mavjud. Ko''rgazmali va o''yin-o''rganuv usulida qurilgan.',
  45000, '45,000 so''m', false, '📘', 586612709, 444653997, '256 bet', 256, 'epub', 4.7, 873, 'Ingliz', 'Boshlang''ich – Ilg''or',
- '["1-bob: Odamlar va shaxsiyat so''zlari","Mashq 1: Bo''shliqlarni to''ldiring.","Mashq 2: Rasmga qarab javob yozing."]'),
+ '["1-bob: Odamlar va shaxsiyat so''zlari","Mashq 1: Bo''shliqlarni to''ldiring.","Mashq 2: Rasmga qarab javob yozing."]',
+ NULL),
 
 (3,  'Business English', 'David Cotton', 'digital',
  'Biznes ingliz tilini o''rganish uchun mo''ljallangan professional kurs kitobida elektron pochta yozish, prezentatsiya qilish, muzokaralar olib borish ko''nikmalari mavjud.',
  60000, '60,000 so''m', false, '📙', -356762360, -1266410227, '304 bet', 304, 'pdf', 4.6, 542, 'Ingliz', 'O''rta – Ilg''or',
- '["1-bob: Prezentatsiya qilish","Misol: Good morning, today I will present...","Mashq: Elektron pochta yozing."]'),
+ '["1-bob: Prezentatsiya qilish","Misol: Good morning, today I will present...","Mashq: Elektron pochta yozing."]',
+ 'books/business_english.pdf'),
 
 (4,  'Everyday Conversations', 'US State Dept.', 'digital',
  'AQSh Davlat departamenti tomonidan nashr qilingan bepul ingliz tili suhbat darsligi. Kundalik hayotda kerakli so''z va iboralar bilan to''ldirilgan.',
  0, 'Bepul', true, '📕', -5862726, -8627521, '128 bet', 128, 'pdf', 4.5, 2103, 'Ingliz', 'Boshlang''ich',
- '["1-dars: Salomlashish","2-dars: Do''stingizni tanishtirish","3-dars: Ish haqida suhbat"]'),
+ '["1-dars: Salomlashish","2-dars: Do''stingizni tanishtirish","3-dars: Ish haqida suhbat"]',
+ 'books/uzbek_english_dict.pdf'),
 
 (5,  'IELTS Preparation', 'Cambridge ESOL', 'digital',
  'IELTS imtihoniga tayyorlanish uchun to''liq qo''llanma. Reading, Writing, Listening va Speaking bo''limlari uchun amaliy mashqlar va strategiyalar.',
  80000, '80,000 so''m', false, '📚', -7828891, -1885899, '420 bet', 420, 'pdf', 4.8, 1870, 'Ingliz', 'O''rta – Yuqori',
- '["IELTS formatini tushunish","Band 7+ olish strategiyalari","Reading: Tezkor o''qish texnikasi"]'),
+ '["IELTS formatini tushunish","Band 7+ olish strategiyalari","Reading: Tezkor o''qish texnikasi"]',
+ 'books/ielts_preparation.pdf'),
 
 (6,  'Speak Naturally', 'K. Johnson', 'digital',
  'So''zlashuvchi ingliz tilini tabiiy ravishda o''rgatuvchi kitob. Ingliz ona-tili sifatidagi odamlar kabi gapirish uchun fonetika, intonatsiya va idiomalar.',
  35000, '35,000 so''m', false, '🗣️', 1538343822, 780566126, '192 bet', 192, 'epub', 4.4, 321, 'Ingliz', 'O''rta',
- '["1-bob: Fonetika asoslari","Intonatsiya: so''roq va darak gaplar","Ko''p ishlatiladigan idiomalar ro''yxati"]'),
+ '["1-bob: Fonetika asoslari","Intonatsiya: so''roq va darak gaplar","Ko''p ishlatiladigan idiomalar ro''yxati"]',
+ NULL),
 
 -- Print books
 (7,  'Headway Upper-Int.', 'John & Liz Soars', 'print',
  'Jahonda eng ko''p ishlatiladigan ingliz tili darsligi. Tizimli grammatika, so''z boyligi va ko''nikma mashqlari bilan to''ldirilgan.',
  120000, '120,000 so''m', false, '📗', 528237397, 260506165, '192 bet', 192, 'hardcover', 4.8, 3201, 'Ingliz', 'Yuqori O''rta',
- '["Unit 1: The world around us","Grammar Focus: Past tenses","Skills: Listening & Speaking"]'),
+ '["Unit 1: The world around us","Grammar Focus: Past tenses","Skills: Listening & Speaking"]',
+ NULL),
 
 (8,  'Cambridge IELTS 16', 'Cambridge ESOL', 'print',
  'IELTS imtihonining haqiqiy savollari bilan 4 ta to''liq imtihon variantini o''z ichiga oladi. Audio CD va javob kaliti bilan birga.',
  150000, '150,000 so''m', false, '📘', 586612709, 444653997, '240 bet', 240, 'paperback', 4.9, 4521, 'Ingliz', 'O''rta – Yuqori',
- '["Test 1: Reading Section","Test 1: Writing Task 1 va 2","Javob kaliti va band descriptors"]'),
+ '["Test 1: Reading Section","Test 1: Writing Task 1 va 2","Javob kaliti va band descriptors"]',
+ NULL),
 
 (9,  'English Vocabulary in Use', 'Michael McCarthy', 'print',
  'So''z boyligini kengaytirish uchun Cambridge chiqaradigan maqbul qo''llanma. Har sahifada yangi so''zlar, misollar va mashqlar.',
  95000, '95,000 so''m', false, '📙', -356762360, -1266410227, '328 bet', 328, 'paperback', 4.7, 1893, 'Ingliz', 'O''rta',
- '["Unit 1: Learning vocabulary","Unit 2: Collocation so''z birikmalari","Mashq: Synonymlar toping"]'),
+ '["Unit 1: Learning vocabulary","Unit 2: Collocation so''z birikmalari","Mashq: Synonymlar toping"]',
+ NULL),
 
 (10, 'Practical English Usage', 'L. Alexander', 'print',
  'Grammatika qoidalari va amaliy qo''llanilishini tushuntiruvchi keng qamrovli ma''lumotnoma. Inglizcha yozish va gapirish uchun zarur.',
  110000, '110,000 so''m', false, '📕', -7828891, -1885899, '288 bet', 288, 'hardcover', 4.6, 1120, 'Ingliz', 'Barcha darajalar',
- '["A-Z: Grammatika qoidalari","Misol: Articles (a, an, the) ishlatilishi","Mashq: Xatolarni toping"]')
+ '["A-Z: Grammatika qoidalari","Misol: Articles (a, an, the) ishlatilishi","Mashq: Xatolarni toping"]',
+ NULL)
 ON CONFLICT (id) DO NOTHING;
+
+-- Update file_path for existing digital PDF books
+UPDATE books SET file_path = 'books/english_grammar.pdf' WHERE id = 1 AND file_path IS NULL;
+UPDATE books SET file_path = 'books/business_english.pdf' WHERE id = 3 AND file_path IS NULL;
+UPDATE books SET file_path = 'books/uzbek_english_dict.pdf' WHERE id = 4 AND file_path IS NULL;
+UPDATE books SET file_path = 'books/ielts_preparation.pdf' WHERE id = 5 AND file_path IS NULL;
 
 -- Give test user (id=1) books 1 and 4 (the free ones)
 INSERT INTO user_books (user_id, book_id, payment_method, purchased_at)
@@ -953,3 +981,85 @@ VALUES
     (100, 'Hisobot tayyor', 'Haftalik hisobot tayyorlandi', 'REPORT', true, NOW() - INTERVAL '3 hours'),
     (100, 'Tizim xabari', 'Xush kelibsiz OAZIS admin paneliga!', 'GENERAL', true, NOW() - INTERVAL '1 day')
 ON CONFLICT DO NOTHING;
+
+-- ═══════════════════════════════════════════════════════
+-- MIGRATE: Score'larni foizli tizimga o'tkazish
+-- Eski score'lar raw count edi (masalan: 10, 4, 3)
+-- Yangi tizim: 0-100 foiz (masalan: 100%, 80%, 75%)
+-- Agar score 100 dan kichik va lesson uchun content bor — foizga aylantirish
+-- ═══════════════════════════════════════════════════════
+UPDATE user_lessons ul SET vocab_score = LEAST(100, CASE
+    WHEN ul.vocab_score IS NULL THEN NULL
+    WHEN ul.vocab_score > 100 THEN ul.vocab_score
+    ELSE (ul.vocab_score * 100) / GREATEST(1, (SELECT COUNT(*) FROM vocabulary v WHERE v.lesson_id = ul.lesson_id))
+END) WHERE ul.vocab_score IS NOT NULL AND ul.vocab_score <= 20;
+
+UPDATE user_lessons ul SET test_score = LEAST(100, CASE
+    WHEN ul.test_score IS NULL THEN NULL
+    WHEN ul.test_score > 100 THEN ul.test_score
+    ELSE (ul.test_score * 100) / GREATEST(1, (SELECT COUNT(*) FROM questions q JOIN tests t ON t.id = q.test_id WHERE t.lesson_id = ul.lesson_id))
+END) WHERE ul.test_score IS NOT NULL AND ul.test_score <= 20;
+
+UPDATE user_lessons ul SET exercise_score = LEAST(100, CASE
+    WHEN ul.exercise_score IS NULL THEN NULL
+    WHEN ul.exercise_score > 100 THEN ul.exercise_score
+    ELSE (ul.exercise_score * 100) / GREATEST(1, (SELECT COUNT(*) FROM exercises e WHERE e.lesson_id = ul.lesson_id))
+END) WHERE ul.exercise_score IS NOT NULL AND ul.exercise_score <= 20;
+
+-- ═══════════════════════════════════════════════════════
+-- FIX: BIGSERIAL sequence after explicit ID inserts
+-- ═══════════════════════════════════════════════════════
+SELECT setval('points_id_seq',      COALESCE((SELECT MAX(id) FROM points), 0));
+SELECT setval('users_id_seq',       COALESCE((SELECT MAX(id) FROM users), 0));
+SELECT setval('languages_id_seq',   COALESCE((SELECT MAX(id) FROM languages), 0));
+SELECT setval('courses_id_seq',     COALESCE((SELECT MAX(id) FROM courses), 0));
+SELECT setval('lessons_id_seq',     COALESCE((SELECT MAX(id) FROM lessons), 0));
+SELECT setval('tests_id_seq',       COALESCE((SELECT MAX(id) FROM tests), 0));
+SELECT setval('vocabulary_id_seq',  COALESCE((SELECT MAX(id) FROM vocabulary), 0));
+SELECT setval('questions_id_seq',   COALESCE((SELECT MAX(id) FROM questions), 0));
+SELECT setval('exercises_id_seq',   COALESCE((SELECT MAX(id) FROM exercises), 0));
+SELECT setval('user_lessons_id_seq',COALESCE((SELECT MAX(id) FROM user_lessons), 0));
+SELECT setval('user_courses_id_seq',COALESCE((SELECT MAX(id) FROM user_courses), 0));
+SELECT setval('books_id_seq',       COALESCE((SELECT MAX(id) FROM books), 0));
+
+-- ═══════════════════════════════════════════════════════
+-- ACHIEVEMENTS TABLE
+-- ═══════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS achievements (
+    id          BIGSERIAL PRIMARY KEY,
+    code        VARCHAR(100) NOT NULL UNIQUE,
+    title       VARCHAR(255) NOT NULL,
+    description VARCHAR(500),
+    icon        VARCHAR(50) DEFAULT 'star',
+    bonus_points INT DEFAULT 0,
+    condition_type VARCHAR(50) NOT NULL,
+    condition_value INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS user_achievements (
+    id              BIGSERIAL PRIMARY KEY,
+    user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    achievement_id  BIGINT NOT NULL REFERENCES achievements(id) ON DELETE CASCADE,
+    unlocked_at     TIMESTAMP DEFAULT NOW(),
+    UNIQUE (user_id, achievement_id)
+);
+
+-- ═══════════════════════════════════════════════════════
+-- ACHIEVEMENTS SEED DATA
+-- ═══════════════════════════════════════════════════════
+
+INSERT INTO achievements (id, code, title, description, icon, bonus_points, condition_type, condition_value) VALUES
+(1,  'first_lesson',    'Birinchi qadam',         'Birinchi darsni yakunlang',           'rocket',    5,  'lessons_completed', 1),
+(2,  'five_lessons',    'Bilim izlovchi',         '5 ta darsni yakunlang',               'book',      10, 'lessons_completed', 5),
+(3,  'ten_lessons',     'O''quvchi yulduzi',      '10 ta darsni yakunlang',              'star',      20, 'lessons_completed', 10),
+(4,  'vocab_master_50', 'Lug''at ustasi',         '50 ta so''z o''rganing',              'dictionary',10, 'vocab_total',       50),
+(5,  'vocab_master_100','So''z boyligim — 100',   '100 ta so''z o''rganing',             'crown',     20, 'vocab_total',       100),
+(6,  'perfect_test',    'Mukammal test',          'Testdan 100% oling',                  'trophy',    15, 'perfect_test',      1),
+(7,  'streak_3',        '3 kunlik streak',        'Ketma-ket 3 kun o''rganing',          'fire',      5,  'streak_days',       3),
+(8,  'streak_7',        'Haftalik streak',        'Ketma-ket 7 kun o''rganing',          'fire',      10, 'streak_days',       7),
+(9,  'streak_30',       'Oylik streak',           'Ketma-ket 30 kun o''rganing',         'fire',      30, 'streak_days',       30),
+(10, 'points_50',       '50 ball',                '50 ball to''plang',                   'gem',       5,  'total_points',      50),
+(11, 'points_100',      '100 ball yulduzchasi',   '100 ball to''plang',                  'gem',       10, 'total_points',      100),
+(12, 'first_course',    'Kurs yakunlovchi',       'Birinchi kursni to''liq yakunlang',   'medal',     25, 'courses_completed', 1)
+ON CONFLICT (id) DO NOTHING;

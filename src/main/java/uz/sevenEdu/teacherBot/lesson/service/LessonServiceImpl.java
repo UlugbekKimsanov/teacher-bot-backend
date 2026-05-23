@@ -14,6 +14,7 @@ import uz.sevenEdu.teacherBot.lesson.entity.UserLesson;
 import uz.sevenEdu.teacherBot.lesson.repository.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -26,6 +27,8 @@ public class LessonServiceImpl implements LessonService {
     private final UserLessonRepository userLessonRepository;
     private final UserCourseRepository userCourseRepository;
     private final FileStorageService fileStorageService;
+    private final uz.sevenEdu.teacherBot.rating.repository.PointsRepository pointsRepository;
+    private final uz.sevenEdu.teacherBot.rating.service.AchievementService achievementService;
 
     @Override
     public Flux<LessonDetailDto> getLessonsByCourse(Long courseId, Long userId) {
@@ -124,7 +127,7 @@ public class LessonServiceImpl implements LessonService {
     }
 
     @Override
-    public Mono<Integer> submitTest(Long lessonId, Long userId, TestSubmitRequest request) {
+    public Mono<SubmitResultDto> submitTest(Long lessonId, Long userId, TestSubmitRequest request) {
         return questionRepository.findByLessonId(lessonId).collectList()
                 .flatMap(questions -> {
                     int correct = 0;
@@ -132,18 +135,20 @@ public class LessonServiceImpl implements LessonService {
                         String selected = request.getAnswers().get(q.getId());
                         if (q.getCorrectOption().equalsIgnoreCase(selected)) correct++;
                     }
-                    int totalQuestions = questions.size();
-                    int finalCorrect = correct;
+                    int total = questions.size();
+                    int pct = total > 0 ? (int) Math.round(correct * 100.0 / total) : 0;
                     return getOrCreateUserLesson(userId, lessonId)
                             .flatMap(ul -> {
-                                ul.setTestScore(finalCorrect);
-                                return checkAndComplete(ul, lessonId).thenReturn(finalCorrect);
+                                ul.setTestScore(pct);
+                                return checkAndComplete(ul, lessonId, userId)
+                                        .then(addPoints(userId, "Test — Dars", pct))
+                                        .then(buildResult(pct, userId));
                             });
                 });
     }
 
     @Override
-    public Mono<Integer> submitExercise(Long lessonId, Long userId, ExerciseSubmitRequest request) {
+    public Mono<SubmitResultDto> submitExercise(Long lessonId, Long userId, ExerciseSubmitRequest request) {
         return exerciseRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList()
                 .flatMap(exercises -> {
                     int correct = 0;
@@ -151,21 +156,30 @@ public class LessonServiceImpl implements LessonService {
                         String userAnswer = request.getAnswers().get(ex.getId());
                         if (ex.getCorrectAnswer().equalsIgnoreCase(userAnswer)) correct++;
                     }
-                    int finalCorrect = correct;
+                    int total = exercises.size();
+                    int pct = total > 0 ? (int) Math.round(correct * 100.0 / total) : 0;
                     return getOrCreateUserLesson(userId, lessonId)
                             .flatMap(ul -> {
-                                ul.setExerciseScore(finalCorrect);
-                                return checkAndComplete(ul, lessonId).thenReturn(finalCorrect);
+                                ul.setExerciseScore(pct);
+                                return checkAndComplete(ul, lessonId, userId)
+                                        .then(addPoints(userId, "Mashq — Dars", pct))
+                                        .then(buildResult(pct, userId));
                             });
                 });
     }
 
     @Override
-    public Mono<Void> submitVocab(Long lessonId, Long userId, VocabSubmitRequest request) {
-        return getOrCreateUserLesson(userId, lessonId)
-                .flatMap(ul -> {
-                    ul.setVocabScore(request.getScore());
-                    return checkAndComplete(ul, lessonId);
+    public Mono<SubmitResultDto> submitVocab(Long lessonId, Long userId, VocabSubmitRequest request) {
+        return vocabularyRepository.findByLessonIdOrderByOrderIndex(lessonId).count()
+                .flatMap(total -> {
+                    int pct = total > 0 ? (int) Math.round(request.getScore() * 100.0 / total) : 0;
+                    return getOrCreateUserLesson(userId, lessonId)
+                            .flatMap(ul -> {
+                                ul.setVocabScore(pct);
+                                return checkAndComplete(ul, lessonId, userId)
+                                        .then(addPoints(userId, "Lug'at — Dars", pct))
+                                        .then(buildResult(pct, userId));
+                            });
                 });
     }
 
@@ -189,28 +203,60 @@ public class LessonServiceImpl implements LessonService {
                 ));
     }
 
-    private Mono<Void> checkAndComplete(UserLesson ul, Long lessonId) {
-        // Get totals for this lesson
-        return Mono.zip(
-                vocabularyRepository.findByLessonIdOrderByOrderIndex(lessonId).count(),
-                questionRepository.findByLessonId(lessonId).count(),
-                exerciseRepository.findByLessonIdOrderByOrderIndex(lessonId).count()
-        ).flatMap(tuple -> {
-            long totalVocab = tuple.getT1();
-            long totalQuestions = tuple.getT2();
-            long totalExercises = tuple.getT3();
+    /**
+     * Score'lar endi 0-100 foiz formatda saqlanadi.
+     * Har bir modul kamida 50% (5 ball) bo'lganda keyingi dars ochiladi.
+     * Ball = foiz / 10 (masalan 70% → 7 ball) — points jadvaliga yoziladi.
+     */
+    private Mono<Void> checkAndComplete(UserLesson ul, Long lessonId, Long userId) {
+        // Har bir modul kamida 50% bo'lishi kerak
+        boolean vocabPassed    = ul.getVocabScore()    != null && ul.getVocabScore()    >= 50;
+        boolean testPassed     = ul.getTestScore()     != null && ul.getTestScore()     >= 50;
+        boolean exercisePassed = ul.getExerciseScore() != null && ul.getExerciseScore() >= 50;
 
-            // 50% threshold for each component (at least 1 correct if there's content)
-            boolean vocabPassed    = totalVocab     == 0 || (ul.getVocabScore()    != null && ul.getVocabScore()    >= Math.max(1, totalVocab     / 2));
-            boolean testPassed     = totalQuestions == 0 || (ul.getTestScore()     != null && ul.getTestScore()     >= Math.max(1, totalQuestions / 2));
-            boolean exercisePassed = totalExercises == 0 || (ul.getExerciseScore() != null && ul.getExerciseScore() >= Math.max(1, totalExercises / 2));
+        boolean wasCompleted = Boolean.TRUE.equals(ul.getIsCompleted());
 
-            if (vocabPassed && testPassed && exercisePassed) {
-                ul.setIsCompleted(true);
-                ul.setCompletedAt(LocalDateTime.now());
-            }
-            return userLessonRepository.save(ul).then();
-        });
+        if (vocabPassed && testPassed && exercisePassed && !wasCompleted) {
+            ul.setIsCompleted(true);
+            ul.setCompletedAt(LocalDateTime.now());
+        }
+
+        return userLessonRepository.save(ul)
+                .then(Mono.defer(() -> {
+                    // Har bir submit'da ball qo'shish (foiz / 10)
+                    // Qaysi modul submit qilinganini aniqlash: eng oxirgi o'zgartilgan score
+                    // Bu yerda oxirgi submit'ni aniqlash qiyin, shuning uchun har uchala modul uchun
+                    // ball alohida qo'shiladi — submitTest, submitExercise, submitVocab da
+                    return Mono.empty();
+                })).then();
+    }
+
+    private Mono<Void> addPoints(Long userId, String activity, int percentScore) {
+        int points = percentScore / 10; // 70% → 7 ball
+        if (points <= 0) return Mono.empty();
+        return pointsRepository.save(uz.sevenEdu.teacherBot.rating.entity.Points.builder()
+                .userId(userId)
+                .activity(activity)
+                .amount(points)
+                .createdAt(LocalDateTime.now())
+                .build()).then();
+    }
+
+    private Mono<SubmitResultDto> buildResult(int pct, Long userId) {
+        return achievementService.checkAndUnlock(userId)
+                .map(achievements -> {
+                    var achDtos = achievements.stream().map(a ->
+                            SubmitResultDto.UnlockedAchievement.builder()
+                                    .id(a.getId())
+                                    .code(a.getCode())
+                                    .title(a.getTitle())
+                                    .description(a.getDescription())
+                                    .icon(a.getIcon())
+                                    .bonusPoints(a.getBonusPoints() != null ? a.getBonusPoints() : 0)
+                                    .build()
+                    ).toList();
+                    return SubmitResultDto.from(pct, achDtos);
+                });
     }
 
     private LessonDetailDto buildBasicDto(Lesson l, boolean unlocked, boolean completed, UserLesson ul) {

@@ -28,8 +28,12 @@ public class BooksDto {
     private String level;
     private List<String> previewPages;
     private Boolean isPurchased;
+    private Boolean inLibrary;
+    private Integer readPage;
+    private Integer totalPages;
     private Integer imageId;
     private Integer fileId;
+    private String fileUrl;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

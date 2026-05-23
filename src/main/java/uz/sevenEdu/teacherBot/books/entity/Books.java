@@ -37,6 +37,7 @@ public class Books {
     private String previewPages;    // JSON array string
     private Integer imageId;
     private Integer fileId;
+    private String filePath;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

@@ -13,10 +13,15 @@ import uz.sevenEdu.teacherBot.course.repository.LanguageRepository;
 import uz.sevenEdu.teacherBot.course.repository.UserCourseRepository;
 import uz.sevenEdu.teacherBot.lesson.repository.LessonRepository;
 
+import uz.sevenEdu.teacherBot.lesson.entity.Lesson;
+
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.AbstractMap;
-import java.util.Map;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +30,8 @@ public class CourseServiceImpl implements CourseService {
     private final UserCourseRepository userCourseRepository;
     private final LanguageRepository languageRepository;
     private final LessonRepository lessonRepository;
+    private final uz.sevenEdu.teacherBot.lesson.repository.UserLessonRepository userLessonRepository;
+    private final uz.sevenEdu.teacherBot.common.service.FileStorageService fileStorageService;
 
     @Override
     public Flux<CourseDto> getAllCourses(Long userId) {
@@ -67,28 +74,51 @@ public class CourseServiceImpl implements CourseService {
                         .defaultIfEmpty("")
                 : Mono.just("");
 
-        Mono<Long> lessonCountMono = lessonRepository.countByCourseId(course.getId());
         Mono<Long> durationMono = lessonRepository.sumDurationByCourseId(course.getId());
 
-        Mono<Map.Entry<Boolean, BigDecimal>> enrollMono = userId != null
-                ? userCourseRepository.findByUserIdAndCourseId(userId, course.getId())
-                        .map(uc -> (Map.Entry<Boolean, BigDecimal>) new AbstractMap.SimpleEntry<>(true, uc.getProgress()))
-                        .defaultIfEmpty(new AbstractMap.SimpleEntry<>(false, BigDecimal.ZERO))
-                : Mono.just(new AbstractMap.SimpleEntry<>(false, BigDecimal.ZERO));
+        Mono<Boolean> enrolledMono = userId != null
+                ? userCourseRepository.existsByUserIdAndCourseId(userId, course.getId())
+                : Mono.just(false);
 
-        return Mono.zip(categoryMono, lessonCountMono, durationMono, enrollMono)
+        // Barcha darslarni tartib bo'yicha olish
+        Mono<List<Lesson>> lessonsMono = lessonRepository
+                .findByCourseIdOrderByOrderIndex(course.getId()).collectList();
+
+        // Tugatilgan dars ID lari
+        Mono<Set<Long>> completedIdsMono = userId != null
+                ? userLessonRepository.findByUserIdAndCourseId(userId, course.getId())
+                        .filter(ul -> Boolean.TRUE.equals(ul.getIsCompleted()))
+                        .map(ul -> ul.getLessonId())
+                        .collect(Collectors.toSet())
+                : Mono.just(Set.of());
+
+        return Mono.zip(categoryMono, durationMono, enrolledMono, lessonsMono, completedIdsMono)
                 .map(tuple -> {
                     String category = tuple.getT1();
-                    int lessonCount = tuple.getT2().intValue();
-                    long totalSecs = tuple.getT3();
+                    long totalSecs = tuple.getT2();
                     int hours = totalSecs > 0 ? (int) Math.ceil(totalSecs / 3600.0) : 0;
-                    boolean enrolled = tuple.getT4().getKey();
-                    BigDecimal progress = tuple.getT4().getValue();
-                    return toDto(course, category, enrolled, progress, lessonCount, hours);
+                    boolean enrolled = tuple.getT3();
+                    List<Lesson> lessons = tuple.getT4();
+                    Set<Long> completedIds = tuple.getT5();
+
+                    int lessonCount = lessons.size();
+                    int completed = (int) lessons.stream()
+                            .filter(l -> completedIds.contains(l.getId())).count();
+                    BigDecimal progress = lessonCount > 0
+                            ? BigDecimal.valueOf(completed).divide(BigDecimal.valueOf(lessonCount), 4, RoundingMode.HALF_UP)
+                            : BigDecimal.ZERO;
+
+                    // Hozirgi dars — birinchi tugatilmagan dars
+                    Lesson cl = lessons.stream()
+                            .filter(l -> !completedIds.contains(l.getId()))
+                            .findFirst().orElse(null);
+
+                    return toDto(course, category, enrolled, progress, completed, lessonCount, hours, cl);
                 });
     }
 
-    private CourseDto toDto(Course c, String category, boolean enrolled, BigDecimal progress, int lessonCount, int hours) {
+    private CourseDto toDto(Course c, String category, boolean enrolled, BigDecimal progress,
+                            int completedLessons, int lessonCount, int hours, Lesson currentLesson) {
         return CourseDto.builder()
                 .id(c.getId())
                 .name(c.getName())
@@ -99,8 +129,13 @@ public class CourseServiceImpl implements CourseService {
                 .isPremium(c.getIsPremium() != null ? c.getIsPremium() : true)
                 .isEnrolled(enrolled)
                 .progress(progress)
+                .completedLessons(completedLessons)
                 .lessonCount(lessonCount)
                 .hours(hours)
+                .currentLessonId(currentLesson != null ? currentLesson.getId() : null)
+                .currentLessonTitle(currentLesson != null ? currentLesson.getName() : null)
+                .currentLessonImage(currentLesson != null ? fileStorageService.toPublicUrl(currentLesson.getCoverImage()) : null)
+                .currentLessonDurationSec(currentLesson != null ? currentLesson.getDurationSec() : null)
                 .build();
     }
 }

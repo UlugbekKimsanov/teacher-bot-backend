@@ -16,6 +16,11 @@ public class CourseDto {
     private Boolean isPremium;
     private Boolean isEnrolled;
     private BigDecimal progress;
+    private int completedLessons;
     private int lessonCount;
     private int hours;
+    private Long currentLessonId;
+    private String currentLessonTitle;
+    private String currentLessonImage;
+    private Integer currentLessonDurationSec;
 }

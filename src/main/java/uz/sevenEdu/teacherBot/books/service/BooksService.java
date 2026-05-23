@@ -15,6 +15,7 @@ import uz.sevenEdu.teacherBot.books.repository.UserBookRepository;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -23,20 +24,26 @@ import java.util.stream.Collectors;
 public class BooksService {
     private final BooksRepository booksRepository;
     private final UserBookRepository userBookRepository;
+    private final uz.sevenEdu.teacherBot.common.service.FileStorageService fileStorageService;
     private static final ObjectMapper mapper = new ObjectMapper();
 
     public Flux<BooksDto> getBooksByCategory(String category, Long userId) {
         Flux<Books> booksFlux = booksRepository.findByCategory(category);
         if (userId == null) {
-            return booksFlux.map(b -> mapToDto(b, false));
+            return booksFlux.map(b -> mapToDto(b, false, false));
         }
         return booksFlux.collectList().flatMapMany(books -> {
             List<Long> bookIds = books.stream().map(Books::getId).toList();
             return userBookRepository.findByUserId(userId).collectList().flatMapMany(userBooks -> {
+                // isPurchased = record exists (active or not) → user has paid/claimed
                 Set<Long> purchasedIds = userBooks.stream()
                         .map(UserBook::getBookId).collect(Collectors.toSet());
+                // inLibrary = record exists AND is_active = true
+                Set<Long> activeIds = userBooks.stream()
+                        .filter(ub -> ub.getIsActive() != null && ub.getIsActive())
+                        .map(UserBook::getBookId).collect(Collectors.toSet());
                 return Flux.fromIterable(books)
-                        .map(b -> mapToDto(b, purchasedIds.contains(b.getId())));
+                        .map(b -> mapToDto(b, purchasedIds.contains(b.getId()), activeIds.contains(b.getId())));
             });
         });
     }
@@ -45,32 +52,73 @@ public class BooksService {
         return booksRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("Kitob topilmadi")))
                 .flatMap(book -> {
-                    if (userId == null) return Mono.just(mapToDto(book, false));
-                    return userBookRepository.existsByUserIdAndBookId(userId, id)
-                            .map(purchased -> mapToDto(book, purchased));
+                    if (userId == null) return Mono.just(mapToDto(book, false, false));
+                    return userBookRepository.findByUserIdAndBookId(userId, id)
+                            .map(ub -> mapToDto(book,
+                                    true,
+                                    ub.getIsActive() != null && ub.getIsActive()))
+                            .defaultIfEmpty(mapToDto(book, false, false));
                 });
     }
 
     public Mono<Void> purchaseBook(Long userId, Long bookId) {
-        return userBookRepository.existsByUserIdAndBookId(userId, bookId)
-                .flatMap(exists -> {
-                    if (exists) return Mono.empty();
-                    return userBookRepository.save(UserBook.builder()
+        return userBookRepository.findByUserIdAndBookId(userId, bookId)
+                .flatMap(existing -> {
+                    if (existing.getIsActive() == null || !existing.getIsActive()) {
+                        return userBookRepository.setActive(userId, bookId, true).then(Mono.just(existing));
+                    }
+                    return Mono.just(existing);
+                })
+                .switchIfEmpty(Mono.defer(() ->
+                    userBookRepository.save(UserBook.builder()
                             .userId(userId).bookId(bookId)
                             .paymentMethod("card")
+                            .isActive(true)
                             .purchasedAt(LocalDateTime.now())
-                            .build()).then();
-                });
+                            .build())
+                ))
+                .then();
+    }
+
+    public Mono<Void> addToLibrary(Long userId, Long bookId) {
+        return userBookRepository.findByUserIdAndBookId(userId, bookId)
+                .flatMap(existing -> {
+                    return userBookRepository.setActive(userId, bookId, true).then(Mono.just(existing));
+                })
+                .switchIfEmpty(Mono.defer(() ->
+                    userBookRepository.save(UserBook.builder()
+                            .userId(userId).bookId(bookId)
+                            .paymentMethod("free")
+                            .isActive(true)
+                            .purchasedAt(LocalDateTime.now())
+                            .build())
+                ))
+                .then();
+    }
+
+    public Mono<Void> removeFromLibrary(Long userId, Long bookId) {
+        return userBookRepository.setActive(userId, bookId, false);
+    }
+
+    public Mono<Void> updateProgress(Long userId, Long bookId, int readPage, int totalPages) {
+        return userBookRepository.updateProgress(userId, bookId, readPage, totalPages);
     }
 
     public Flux<BooksDto> getMyBooks(Long userId) {
-        return userBookRepository.findByUserId(userId).collectList()
+        return userBookRepository.findByUserIdAndIsActive(userId, true).collectList()
                 .flatMapMany(userBooks -> {
                     if (userBooks.isEmpty()) return Flux.empty();
+                    Map<Long, UserBook> ubMap = userBooks.stream()
+                            .collect(Collectors.toMap(UserBook::getBookId, ub -> ub));
                     List<Long> bookIds = userBooks.stream()
                             .map(UserBook::getBookId).toList();
                     return booksRepository.findAllById(bookIds)
-                            .map(b -> mapToDto(b, true));
+                            .map(b -> {
+                                UserBook ub = ubMap.get(b.getId());
+                                return mapToDto(b, true, true,
+                                        ub != null ? ub.getReadPage() : 0,
+                                        ub != null ? ub.getTotalPages() : 0);
+                            });
                 });
     }
 
@@ -79,11 +127,11 @@ public class BooksService {
     public Mono<BooksDto> createBook(BooksDto dto) {
         Books book = mapToEntity(dto);
         book.setCreatedAt(LocalDateTime.now());
-        return booksRepository.save(book).map(b -> mapToDto(b, false));
+        return booksRepository.save(book).map(b -> mapToDto(b, false, false));
     }
 
     public Flux<BooksDto> getAllBooks() {
-        return booksRepository.findAll().map(b -> mapToDto(b, false));
+        return booksRepository.findAll().map(b -> mapToDto(b, false, false));
     }
 
     public Mono<BooksDto> updateBook(Long id, BooksDto dto) {
@@ -98,19 +146,23 @@ public class BooksService {
                     existing.setUpdatedAt(LocalDateTime.now());
                     return booksRepository.save(existing);
                 })
-                .map(b -> mapToDto(b, false));
+                .map(b -> mapToDto(b, false, false));
     }
 
     public Mono<BooksDto> deleteBookAndReturn(Long id) {
         return booksRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("Kitob topilmadi")))
                 .flatMap(book -> booksRepository.deleteById(id)
-                        .then(Mono.just(mapToDto(book, false))));
+                        .then(Mono.just(mapToDto(book, false, false))));
     }
 
     // ── Mappers ─────────────────────────────────────────────────────
 
-    private BooksDto mapToDto(Books entity, boolean isPurchased) {
+    private BooksDto mapToDto(Books entity, boolean isPurchased, boolean inLibrary) {
+        return mapToDto(entity, isPurchased, inLibrary, 0, 0);
+    }
+
+    private BooksDto mapToDto(Books entity, boolean isPurchased, boolean inLibrary, int readPage, int totalPages) {
         List<Integer> coverColors = new ArrayList<>();
         if (entity.getCoverColor1() != null) coverColors.add(entity.getCoverColor1());
         if (entity.getCoverColor2() != null) coverColors.add(entity.getCoverColor2());
@@ -147,8 +199,12 @@ public class BooksService {
                 .level(entity.getLevel())
                 .previewPages(previewPages)
                 .isPurchased(isPurchased)
+                .inLibrary(inLibrary)
+                .readPage(readPage)
+                .totalPages(totalPages)
                 .imageId(entity.getImageId())
                 .fileId(entity.getFileId())
+                .fileUrl(fileStorageService.toPublicUrl(entity.getFilePath()))
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();

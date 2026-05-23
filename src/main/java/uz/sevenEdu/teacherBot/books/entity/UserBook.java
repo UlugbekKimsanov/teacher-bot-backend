@@ -20,5 +20,8 @@ public class UserBook {
     private Long userId;
     private Long bookId;
     private String paymentMethod;
+    private Boolean isActive;
+    private Integer readPage;
+    private Integer totalPages;
     private LocalDateTime purchasedAt;
 }

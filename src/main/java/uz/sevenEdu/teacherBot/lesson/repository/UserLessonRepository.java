@@ -14,4 +14,9 @@ public interface UserLessonRepository extends ReactiveCrudRepository<UserLesson,
            "JOIN lessons l ON ul.lesson_id = l.id " +
            "WHERE ul.user_id = :userId AND l.course_id = :courseId")
     Flux<UserLesson> findByUserIdAndCourseId(Long userId, Long courseId);
+
+    @Query("SELECT COUNT(*) FROM user_lessons ul " +
+           "JOIN lessons l ON ul.lesson_id = l.id " +
+           "WHERE ul.user_id = :userId AND l.course_id = :courseId AND ul.is_completed = true")
+    Mono<Long> countCompletedByUserAndCourse(Long userId, Long courseId);
 }

@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Transient;
 import org.springframework.data.relational.core.mapping.Table;
 
 @Data
@@ -21,4 +22,8 @@ public class Language {
     private String description;
     private String colorStart;
     private String colorEnd;
+    @Transient
+    private int courseCount;
+    @Transient
+    private long studentCount;
 }

@@ -39,6 +39,33 @@ public class BooksController {
                 .then(Mono.just(ApiResponse.ok("Kitob sotib olindi", null)));
     }
 
+    @PostMapping("/{id}/progress")
+    public Mono<ApiResponse<String>> updateProgress(
+            @PathVariable Long id,
+            @RequestParam int readPage,
+            @RequestParam int totalPages,
+            Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return booksService.updateProgress(userId, id, readPage, totalPages)
+                .then(Mono.just(ApiResponse.ok("Progress saqlandi", null)));
+    }
+
+    @PostMapping("/{id}/add-to-library")
+    public Mono<ApiResponse<String>> addToLibrary(
+            @PathVariable Long id, Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return booksService.addToLibrary(userId, id)
+                .then(Mono.just(ApiResponse.ok("Kutubxonaga qo'shildi", null)));
+    }
+
+    @DeleteMapping("/{id}/remove-from-library")
+    public Mono<ApiResponse<String>> removeFromLibrary(
+            @PathVariable Long id, Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return booksService.removeFromLibrary(userId, id)
+                .then(Mono.just(ApiResponse.ok("Kutubxonadan olib tashlandi", null)));
+    }
+
     @GetMapping("/my")
     public Mono<ApiResponse<List<BooksDto>>> myBooks(Authentication auth) {
         Long userId = (Long) auth.getPrincipal();
