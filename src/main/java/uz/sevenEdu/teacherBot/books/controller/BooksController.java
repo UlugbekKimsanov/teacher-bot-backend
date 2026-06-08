@@ -6,15 +6,18 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.books.dto.BooksDto;
 import uz.sevenEdu.teacherBot.books.service.BooksService;
+import uz.sevenEdu.teacherBot.books.service.CheckoutService;
 import uz.sevenEdu.teacherBot.common.response.ApiResponse;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/books")
 @RequiredArgsConstructor
 public class BooksController {
     private final BooksService booksService;
+    private final CheckoutService checkoutService;
 
     @GetMapping("/category/{category}")
     public Mono<ApiResponse<List<BooksDto>>> getByCategory(
@@ -37,6 +40,21 @@ public class BooksController {
         Long userId = (Long) auth.getPrincipal();
         return booksService.purchaseBook(userId, id)
                 .then(Mono.just(ApiResponse.ok("Kitob sotib olindi", null)));
+    }
+
+    /**
+     * To'lov checkout URL olish.
+     * paymentMethod: Click, Payme, Paynet, UzumNasiya, AlifNasiya
+     * Qaytaradi: { "checkoutUrl": "https://...", "merchantTransId": "book_1_5" }
+     */
+    @PostMapping("/{id}/checkout")
+    public Mono<ApiResponse<Map<String, String>>> checkout(
+            @PathVariable Long id,
+            @RequestParam String paymentMethod,
+            Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return checkoutService.createCheckoutUrl(userId, id, paymentMethod)
+                .map(ApiResponse::ok);
     }
 
     @PostMapping("/{id}/progress")

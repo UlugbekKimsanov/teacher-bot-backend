@@ -117,7 +117,7 @@ public class LessonServiceImpl implements LessonService {
                                     .id(v.getId()).phraseUz(v.getTranslationUz()).phraseEn(v.getTranslationTarget()).build()).toList())
                             .questions(tuple.getT2().stream().map(q -> LessonDetailDto.QuestionDto.builder()
                                     .id(q.getId()).questionText(q.getQuestionText())
-                                    .optionA(q.getOptionA()).optionB(q.getOptionB()).optionC(q.getOptionC()).build()).toList())
+                                    .optionA(q.getOptionA()).optionB(q.getOptionB()).optionC(q.getOptionC()).optionD(q.getOptionD()).build()).toList())
                             .exercises(tuple.getT3().stream().map(e -> LessonDetailDto.ExerciseDto.builder()
                                     .id(e.getId()).sentence(e.getSentence()).options(e.getOptions())
                                     .correctAnswer(e.getCorrectAnswer()).orderIndex(e.getOrderIndex()).build()).toList())

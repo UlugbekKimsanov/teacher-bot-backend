@@ -77,7 +77,10 @@ public class RatingController {
     public Mono<ApiResponse<List<AchievementService.AchievementDto>>> getAchievements(Authentication auth) {
         Long userId = getUserId(auth);
         if (userId == null) return Mono.just(ApiResponse.ok(List.of()));
-        return achievementService.getAllForUser(userId).map(ApiResponse::ok);
+        // Avval yangi achievementlarni tekshir, keyin hammasini qaytar
+        return achievementService.checkAndUnlock(userId)
+                .then(achievementService.getAllForUser(userId))
+                .map(ApiResponse::ok);
     }
 
     @GetMapping("/daily-goals")

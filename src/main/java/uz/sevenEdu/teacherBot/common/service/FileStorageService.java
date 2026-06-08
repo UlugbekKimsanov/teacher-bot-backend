@@ -108,6 +108,34 @@ public class FileStorageService {
         return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
     }
 
+    // ── Book ──────────────────────────────────────────────
+
+    /**
+     * Kitob fayli saqlash (PDF, EPUB va boshqalar)
+     * Path: books/{bookId}/{fileName}
+     */
+    public Mono<String> saveBookFile(Long bookId, FilePart filePart, String oldPath) {
+        deleteIfExists(oldPath);
+        String ext = getExtension(filePart.filename());
+        String uid = UUID.randomUUID().toString().substring(0, 8);
+        String fileName = "book_" + bookId + "_" + uid + ext;
+        Path dest = basePath.resolve("books").resolve(String.valueOf(bookId)).resolve(fileName);
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
+    /**
+     * Kitob muqova rasmi saqlash
+     * Path: books/{bookId}/cover_{bookId}_{uid}.{ext}
+     */
+    public Mono<String> saveBookCover(Long bookId, FilePart filePart, String oldPath) {
+        deleteIfExists(oldPath);
+        String ext = getExtension(filePart.filename());
+        String uid = UUID.randomUUID().toString().substring(0, 8);
+        String fileName = "cover_" + bookId + "_" + uid + ext;
+        Path dest = basePath.resolve("books").resolve(String.valueOf(bookId)).resolve(fileName);
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
     // ── Path → URL ─────────────────────────────────────────
 
     /**

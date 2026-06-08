@@ -8,9 +8,15 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.books.dto.BooksDto;
 import uz.sevenEdu.teacherBot.books.entity.Books;
+import uz.sevenEdu.teacherBot.books.entity.SaleRecord;
 import uz.sevenEdu.teacherBot.books.entity.UserBook;
 import uz.sevenEdu.teacherBot.books.repository.BooksRepository;
+import uz.sevenEdu.teacherBot.books.repository.SaleRecordRepository;
 import uz.sevenEdu.teacherBot.books.repository.UserBookRepository;
+import uz.sevenEdu.teacherBot.notification.service.NotificationService;
+import uz.sevenEdu.teacherBot.telegram.TelegramBotService;
+import uz.sevenEdu.teacherBot.user.enums.UserRole;
+import uz.sevenEdu.teacherBot.user.repository.UserRepository;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -24,6 +30,10 @@ import java.util.stream.Collectors;
 public class BooksService {
     private final BooksRepository booksRepository;
     private final UserBookRepository userBookRepository;
+    private final SaleRecordRepository saleRecordRepository;
+    private final UserRepository userRepository;
+    private final NotificationService notificationService;
+    private final TelegramBotService telegramBotService;
     private final uz.sevenEdu.teacherBot.common.service.FileStorageService fileStorageService;
     private static final ObjectMapper mapper = new ObjectMapper();
 
@@ -61,7 +71,18 @@ public class BooksService {
                 });
     }
 
+    /**
+     * Eski chaqiruvlar uchun (backward compatible)
+     */
     public Mono<Void> purchaseBook(Long userId, Long bookId) {
+        return purchaseBook(userId, bookId, "card", null);
+    }
+
+    /**
+     * To'liq sotuv qaydini yaratuvchi purchaseBook.
+     * SaleRecord saqlaydi va admin larga notification yuboradi.
+     */
+    public Mono<Void> purchaseBook(Long userId, Long bookId, String paymentMethod, String transactionId) {
         return userBookRepository.findByUserIdAndBookId(userId, bookId)
                 .flatMap(existing -> {
                     if (existing.getIsActive() == null || !existing.getIsActive()) {
@@ -72,12 +93,71 @@ public class BooksService {
                 .switchIfEmpty(Mono.defer(() ->
                     userBookRepository.save(UserBook.builder()
                             .userId(userId).bookId(bookId)
-                            .paymentMethod("card")
+                            .paymentMethod(paymentMethod)
                             .isActive(true)
                             .purchasedAt(LocalDateTime.now())
                             .build())
                 ))
+                .then(recordSaleAndNotify(userId, bookId, paymentMethod, transactionId));
+    }
+
+    /**
+     * Sotuv qaydini saqlash va admin larga notification yuborish
+     */
+    private Mono<Void> recordSaleAndNotify(Long userId, Long bookId, String paymentMethod, String transactionId) {
+        return Mono.zip(
+                booksRepository.findById(bookId).defaultIfEmpty(Books.builder().title("Noma'lum").price(0).build()),
+                userRepository.findById(userId)
+        ).flatMap(tuple -> {
+            Books book = tuple.getT1();
+            var user = tuple.getT2();
+            String buyerName = (user.getFirstName() != null ? user.getFirstName() : "")
+                    + " " + (user.getLastName() != null ? user.getLastName() : "");
+            int amount = book.getPrice() != null ? book.getPrice() : 0;
+
+            SaleRecord sale = SaleRecord.builder()
+                    .userId(userId)
+                    .bookId(bookId)
+                    .bookTitle(book.getTitle())
+                    .buyerName(buyerName.trim())
+                    .amount(amount)
+                    .paymentMethod(paymentMethod)
+                    .transactionId(transactionId)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+
+            return saleRecordRepository.save(sale)
+                    .then(notifyAdmins(buyerName.trim(), book.getTitle(), amount, paymentMethod));
+        });
+    }
+
+    /**
+     * Barcha admin larga sotuv haqida notification yuborish:
+     * 1) Saytdagi notification tizimiga (NotificationService)
+     * 2) Telegram botga (TelegramBotService)
+     * Ikkalasi parallel ishlaydi.
+     */
+    private Mono<Void> notifyAdmins(String buyerName, String bookTitle, int amount, String paymentMethod) {
+        String title = "Yangi sotuv!";
+        String body = buyerName + " — \"" + bookTitle + "\" kitobini "
+                + paymentMethod + " orqali sotib oldi. Summa: " + amount + " so'm";
+
+        // Telegram uchun HTML formatlangan xabar
+        String telegramMsg = "<b>Yangi sotuv!</b>\n"
+                + "Xaridor: " + buyerName + "\n"
+                + "Kitob: <i>" + bookTitle + "</i>\n"
+                + "Summa: <b>" + amount + " so'm</b>\n"
+                + "To'lov: " + paymentMethod;
+
+        // Sayt notification va Telegram parallel yuboriladi
+        Mono<Void> siteNotification = userRepository.findByRole(UserRole.ADMIN.name())
+                .concatMap(admin -> notificationService.send(
+                        admin.getId(), title, body, "SALE", null))
                 .then();
+
+        Mono<Void> telegramNotification = telegramBotService.notifyAdmins(telegramMsg);
+
+        return Mono.when(siteNotification, telegramNotification);
     }
 
     public Mono<Void> addToLibrary(Long userId, Long bookId) {
@@ -138,11 +218,31 @@ public class BooksService {
         return booksRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("Kitob topilmadi")))
                 .flatMap(existing -> {
-                    existing.setTitle(dto.getTitle());
-                    existing.setAuthor(dto.getAuthor());
-                    existing.setCategory(dto.getCategory());
-                    existing.setDescription(dto.getDescription());
-                    existing.setPrice(dto.getPrice());
+                    if (dto.getTitle() != null) existing.setTitle(dto.getTitle());
+                    if (dto.getAuthor() != null) existing.setAuthor(dto.getAuthor());
+                    if (dto.getCategory() != null) existing.setCategory(dto.getCategory());
+                    if (dto.getDescription() != null) existing.setDescription(dto.getDescription());
+                    if (dto.getPrice() != null) existing.setPrice(dto.getPrice());
+                    if (dto.getPriceLabel() != null) existing.setPriceLabel(dto.getPriceLabel());
+                    if (dto.getIsFree() != null) existing.setIsFree(dto.getIsFree());
+                    if (dto.getEmoji() != null) existing.setEmoji(dto.getEmoji());
+                    if (dto.getCoverColors() != null && !dto.getCoverColors().isEmpty()) {
+                        existing.setCoverColor1(dto.getCoverColors().get(0));
+                        if (dto.getCoverColors().size() > 1) existing.setCoverColor2(dto.getCoverColors().get(1));
+                    }
+                    if (dto.getPages() != null) existing.setPages(dto.getPages());
+                    if (dto.getPageCount() != null) existing.setPageCount(dto.getPageCount());
+                    if (dto.getFormat() != null) existing.setFormat(dto.getFormat());
+                    if (dto.getRating() != null) existing.setRating(dto.getRating());
+                    if (dto.getReviewCount() != null) existing.setReviewCount(dto.getReviewCount());
+                    if (dto.getLanguage() != null) existing.setLanguage(dto.getLanguage());
+                    if (dto.getLevel() != null) existing.setLevel(dto.getLevel());
+                    if (dto.getPreviewPages() != null) {
+                        try { existing.setPreviewPages(mapper.writeValueAsString(dto.getPreviewPages())); }
+                        catch (Exception ignored) {}
+                    }
+                    if (dto.getImageId() != null) existing.setImageId(dto.getImageId());
+                    if (dto.getFileId() != null) existing.setFileId(dto.getFileId());
                     existing.setUpdatedAt(LocalDateTime.now());
                     return booksRepository.save(existing);
                 })

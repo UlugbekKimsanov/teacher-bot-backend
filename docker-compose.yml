@@ -1,0 +1,62 @@
+services:
+  app:
+    build: .
+    container_name: teacher-bot-app
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: teacher_bot
+      DB_USER: postgres
+      DB_PASS: ${DB_PASS:-postgres}
+      REDIS_HOST: redis
+      JWT_SECRET: ${JWT_SECRET:-7EDUTeacherBotSecretKeyForJWTTokenGeneration2024VeryLongSecretKey}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASS: ${MAIL_PASS:-}
+      CLICK_MERCHANT_ID: ${CLICK_MERCHANT_ID:-24180}
+      CLICK_SERVICE_ID: ${CLICK_SERVICE_ID:-31879}
+      CLICK_SECRET_KEY: ${CLICK_SECRET_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+    volumes:
+      - app-storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: teacher-bot-db
+    environment:
+      POSTGRES_DB: teacher_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASS:-postgres}
+    # ports:
+    #   - "5432:5432"  # faqat debug kerak bo'lsa oching
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: teacher-bot-redis
+    # ports:
+    #   - "6379:6379"  # faqat debug kerak bo'lsa oching
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  pg-data:
+  redis-data:
+  app-storage:

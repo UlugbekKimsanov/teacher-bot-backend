@@ -14,4 +14,20 @@ public interface UserRepository extends ReactiveCrudRepository<BaseUser, Long> {
 
     @Query("SELECT * FROM users WHERE role = :role")
     Flux<BaseUser> findByRole(String role);
+
+    /** isDefault=false admin uchun: faqat TEACHER va STUDENT */
+    @Query("SELECT * FROM users WHERE role IN ('TEACHER', 'STUDENT')")
+    Flux<BaseUser> findTeachersAndStudents();
+
+    /** isDefault=false admin uchun: rol filtri bilan (faqat TEACHER yoki STUDENT) */
+    @Query("SELECT * FROM users WHERE role = :role AND role IN ('TEACHER', 'STUDENT')")
+    Flux<BaseUser> findTeachersAndStudentsByRole(String role);
+
+    /** isDefault=true admin uchun: o'zidan tashqari hammani */
+    @Query("SELECT * FROM users WHERE id != :excludeId")
+    Flux<BaseUser> findAllExcept(Long excludeId);
+
+    /** isDefault=true admin uchun: rol filtri + o'zidan tashqari */
+    @Query("SELECT * FROM users WHERE role = :role AND id != :excludeId")
+    Flux<BaseUser> findByRoleExcept(String role, Long excludeId);
 }

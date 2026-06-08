@@ -27,5 +27,7 @@ public class BaseUser {
     private Long ball;
     private String specialization;
     private String fcmToken;
+    private Long telegramChatId;
+    private Boolean isDefault;
     private LocalDateTime createdAt;
 }

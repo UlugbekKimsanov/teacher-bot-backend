@@ -5,6 +5,11 @@ spring:
     url: r2dbc:postgresql://localhost:5432/teacher_bot
     username: postgres
     password: 1
+  flyway:
+    url: jdbc:postgresql://localhost:5432/teacher_bot
+    user: postgres
+    password: 1
+    baseline-on-migrate: true
   data:
     redis:
       host: localhost
@@ -37,3 +42,31 @@ app:
   eskiz:
     email: your_eskiz_email@example.com
     password: your_eskiz_password
+
+click:
+  merchant-id: 24180
+  service-id: 31879
+  merchant-user-id: 0
+  secret-key: "LuGG43iQVdGSWZDiY"
+
+payme:
+  merchant-id: ""
+  secret-key: ""
+
+paynet:
+  username: ""
+  password: ""
+  service-id: 0
+
+uzum-nasiya:
+  username: ""
+  password: ""
+  service-id: 0
+
+alif-nasiya:
+  shop-id: ""
+  secret-key: ""
+
+telegram:
+  bot-token: ""
+  bot-username: ""

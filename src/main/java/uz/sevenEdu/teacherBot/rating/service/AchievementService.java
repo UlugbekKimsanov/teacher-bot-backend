@@ -4,14 +4,19 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import uz.sevenEdu.teacherBot.course.repository.UserCourseRepository;
+import uz.sevenEdu.teacherBot.lesson.repository.LessonRepository;
 import uz.sevenEdu.teacherBot.lesson.repository.UserLessonRepository;
+import uz.sevenEdu.teacherBot.lesson.repository.VocabularyRepository;
 import uz.sevenEdu.teacherBot.rating.entity.Achievement;
 import uz.sevenEdu.teacherBot.rating.entity.Points;
 import uz.sevenEdu.teacherBot.rating.entity.UserAchievement;
 import uz.sevenEdu.teacherBot.rating.repository.AchievementRepository;
+import uz.sevenEdu.teacherBot.rating.repository.AttendanceRepository;
 import uz.sevenEdu.teacherBot.rating.repository.PointsRepository;
 import uz.sevenEdu.teacherBot.rating.repository.UserAchievementRepository;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -22,6 +27,10 @@ public class AchievementService {
     private final UserAchievementRepository userAchievementRepository;
     private final UserLessonRepository userLessonRepository;
     private final PointsRepository pointsRepository;
+    private final AttendanceRepository attendanceRepository;
+    private final UserCourseRepository userCourseRepository;
+    private final LessonRepository lessonRepository;
+    private final VocabularyRepository vocabularyRepository;
 
     /**
      * Check all achievements for a user and unlock any newly earned ones.
@@ -115,18 +124,49 @@ public class AchievementService {
     private Mono<UserStats> gatherStats(Long userId) {
         var lessonsCompleted = userLessonRepository.findByUserId(userId).collectList()
                 .map(list -> list.stream().filter(ul -> Boolean.TRUE.equals(ul.getIsCompleted())).count());
-        var vocabLessons = userLessonRepository.findByUserId(userId).collectList()
-                .map(list -> list.stream()
-                        .filter(ul -> ul.getVocabScore() != null && ul.getVocabScore() >= 50)
-                        .count() * 10); // approximate words learned
+
+        // Haqiqiy o'rganilgan so'zlar soni (vocab_score >= 50% bo'lgan darslardagi so'zlar)
+        var vocabTotal = vocabularyRepository.countLearnedByUserId(userId);
+
         var perfectTests = userLessonRepository.findByUserId(userId).collectList()
                 .map(list -> list.stream()
                         .filter(ul -> ul.getTestScore() != null && ul.getTestScore() == 100)
                         .count());
+
         var totalPoints = pointsRepository.sumByUserId(userId);
 
-        return Mono.zip(lessonsCompleted, vocabLessons, perfectTests, totalPoints)
-                .map(t -> new UserStats(t.getT1(), t.getT2(), t.getT3(), t.getT4()));
+        // Joriy streak hisoblash (ketma-ket kunlar)
+        var currentStreak = attendanceRepository.findDistinctDatesByUserId(userId)
+                .collectList()
+                .map(dates -> {
+                    if (dates.isEmpty()) return 0L;
+                    LocalDate today = LocalDate.now();
+                    LocalDate expected = today;
+                    if (!dates.contains(today) && dates.contains(today.minusDays(1))) {
+                        expected = today.minusDays(1);
+                    }
+                    long streak = 0;
+                    for (LocalDate d : dates) {
+                        if (d.equals(expected)) {
+                            streak++;
+                            expected = expected.minusDays(1);
+                        } else if (d.isBefore(expected)) {
+                            break;
+                        }
+                    }
+                    return streak;
+                });
+
+        // Yakunlangan kurslar soni (barcha darslari completed bo'lgan kurslar)
+        var coursesCompleted = userCourseRepository.findByUserId(userId)
+                .flatMap(uc -> Mono.zip(
+                        lessonRepository.countByCourseId(uc.getCourseId()),
+                        userLessonRepository.countCompletedByUserAndCourse(userId, uc.getCourseId())
+                ).filter(t -> t.getT1() > 0 && t.getT2() >= t.getT1()))
+                .count();
+
+        return Mono.zip(lessonsCompleted, vocabTotal, perfectTests, totalPoints, currentStreak, coursesCompleted)
+                .map(t -> new UserStats(t.getT1(), t.getT2(), t.getT3(), t.getT4(), t.getT5(), t.getT6()));
     }
 
     private boolean meetsCondition(Achievement a, UserStats stats) {
@@ -136,13 +176,14 @@ public class AchievementService {
             case "vocab_total" -> stats.vocabTotal >= val;
             case "perfect_test" -> stats.perfectTests >= val;
             case "total_points" -> stats.totalPoints >= val;
-            case "courses_completed" -> false; // complex check, skip for now
-            case "streak_days" -> false; // needs attendance query, skip for now
+            case "courses_completed" -> stats.coursesCompleted >= val;
+            case "streak_days" -> stats.currentStreak >= val;
             default -> false;
         };
     }
 
-    private record UserStats(long lessonsCompleted, long vocabTotal, long perfectTests, long totalPoints) {}
+    private record UserStats(long lessonsCompleted, long vocabTotal, long perfectTests,
+                             long totalPoints, long currentStreak, long coursesCompleted) {}
 
     @lombok.Data
     @lombok.Builder

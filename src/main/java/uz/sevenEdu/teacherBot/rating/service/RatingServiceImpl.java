@@ -31,6 +31,7 @@ public class RatingServiceImpl implements RatingService {
     private final UserLessonRepository userLessonRepository;
     private final UserCourseRepository userCourseRepository;
     private final UserRepository userRepository;
+    private final uz.sevenEdu.teacherBot.lesson.repository.VocabularyRepository vocabularyRepository;
 
     @Override
     public Mono<RatingDto.AttendanceDto> getAttendance(Long userId, Long courseId) {
@@ -228,14 +229,22 @@ public class RatingServiceImpl implements RatingService {
 
         Mono<Long> todayPoints = pointsRepository.sumTodayByUserId(userId);
 
-        return Mono.zip(lessonsDone, todayPoints)
-                .map(tuple -> RatingDto.DailyGoalsDto.builder()
-                        .lessonsGoal(3)
-                        .lessonsDone(tuple.getT1().intValue())
-                        .minutesGoal(30)
-                        .minutesDone(tuple.getT1().intValue() * 6) // ~6 min per lesson
-                        .wordsGoal(20)
-                        .wordsDone(tuple.getT1().intValue() * 10) // ~10 words per lesson
-                        .build());
+        // Bugun yakunlangan darslardagi haqiqiy so'zlar soni
+        Mono<Long> todayWords = vocabularyRepository.countTodayLearnedByUserId(userId);
+
+        return Mono.zip(lessonsDone, todayPoints, todayWords)
+                .map(tuple -> {
+                    int lessons = tuple.getT1().intValue();
+                    int points = tuple.getT2().intValue();
+                    int words = tuple.getT3().intValue();
+                    return RatingDto.DailyGoalsDto.builder()
+                            .lessonsGoal(3)
+                            .lessonsDone(lessons)
+                            .minutesGoal(30)
+                            .minutesDone(lessons * 6) // ~6 min per lesson (vaqt kuzatuvi yo'q)
+                            .wordsGoal(20)
+                            .wordsDone(words) // haqiqiy so'z soni
+                            .build();
+                });
     }
 }

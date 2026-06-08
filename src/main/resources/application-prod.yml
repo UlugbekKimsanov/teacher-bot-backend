@@ -1,0 +1,39 @@
+spring:
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:teacher_bot}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASS:postgres}
+  flyway:
+    url: jdbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:teacher_bot}
+    user: ${DB_USER:postgres}
+    password: ${DB_PASS:postgres}
+    baseline-on-migrate: true
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USER:}
+    password: ${MAIL_PASS:}
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:7EDUTeacherBotSecretKeyForJWTTokenGeneration2024VeryLongSecretKey}
+  storage:
+    base-path: /app/storage
+
+click:
+  merchant-id: ${CLICK_MERCHANT_ID:24180}
+  service-id: ${CLICK_SERVICE_ID:31879}
+  merchant-user-id: ${CLICK_MERCHANT_USER_ID:0}
+  secret-key: ${CLICK_SECRET_KEY:}
+
+payme:
+  merchant-id: ${PAYME_MERCHANT_ID:}
+  secret-key: ${PAYME_SECRET_KEY:}
+
+telegram:
+  bot-token: ${TELEGRAM_BOT_TOKEN:}
+  bot-username: ${TELEGRAM_BOT_USERNAME:}
