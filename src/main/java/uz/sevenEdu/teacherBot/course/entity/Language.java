@@ -21,8 +21,7 @@ public class Language {
     private String flagImage;
     private String description;
     private String flagEmoji;
-    private String colorStart;
-    private String colorEnd;
+    private Boolean enabled;
     @Transient
     private int courseCount;
     @Transient

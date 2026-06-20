@@ -21,11 +21,10 @@ public class BooksDto {
     private List<Integer> coverColors;
     private String pages;
     private Integer pageCount;
-    private String format;
     private Double rating;
     private Integer reviewCount;
+    private Integer myRating;        // joriy foydalanuvchi qo'ygan baho (0 = qo'ymagan)
     private String language;
-    private String level;
     private List<String> previewPages;
     private Boolean isPurchased;
     private Boolean inLibrary;
@@ -34,6 +33,7 @@ public class BooksDto {
     private Integer imageId;
     private Integer fileId;
     private String fileUrl;
+    private String coverUrl;         // yuklangan muqova rasmi (to'liq URL)
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

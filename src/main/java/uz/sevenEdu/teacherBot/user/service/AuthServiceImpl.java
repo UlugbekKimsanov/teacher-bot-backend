@@ -117,6 +117,14 @@ public class AuthServiceImpl implements AuthService {
         String normalizedPhone = normalizePhone(request.getEmail()); // phone is passed in email field
         String otpCode = request.getPassword();
 
+        // TEST bypass: 55555 master kod — SMS kodsiz ham o'tadi. PRODUCTION'da olib tashlash kerak!
+        if ("55555".equals(otpCode)) {
+            return redisTemplate.delete(PHONE_OTP_PREFIX + normalizedPhone)
+                    .then(userRepository.findByPhone(normalizedPhone))
+                    .switchIfEmpty(Mono.error(new UnauthorizedException("Foydalanuvchi topilmadi")))
+                    .map(user -> toAuthResponse(user, true));
+        }
+
         return redisTemplate.opsForValue().get(PHONE_OTP_PREFIX + normalizedPhone)
                 .switchIfEmpty(Mono.error(new BadRequestException("SMS kod topilmadi yoki muddati o'tgan")))
                 .flatMap(storedOtp -> {
@@ -130,6 +138,13 @@ public class AuthServiceImpl implements AuthService {
                 .map(user -> toAuthResponse(user, true));
     }
 
+    @Override
+    public Mono<AuthResponse> guestLogin() {
+        return userRepository.findById(uz.sevenEdu.teacherBot.common.util.GuestUtil.GUEST_USER_ID)
+                .switchIfEmpty(Mono.error(new UnauthorizedException("Mehmon profili topilmadi")))
+                .map(user -> toAuthResponse(user, true));
+    }
+
     private AuthResponse toAuthResponse(BaseUser user, boolean isMobile) {
         String token = jwtUtil.generateToken(user.getId(), user.getPhone(), user.getRole(), isMobile);
         return AuthResponse.builder()
@@ -140,6 +155,7 @@ public class AuthServiceImpl implements AuthService {
                 .phone(user.getPhone())
                 .role(user.getRole())
                 .token(token)
+                .isGuest(Boolean.TRUE.equals(user.getIsGuest()))
                 .build();
     }
 

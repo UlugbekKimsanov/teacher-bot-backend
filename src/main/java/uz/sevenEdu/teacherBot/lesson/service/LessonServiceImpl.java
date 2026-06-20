@@ -26,6 +26,7 @@ public class LessonServiceImpl implements LessonService {
     private final TeacherQuestionRepository teacherQuestionRepository;
     private final UserLessonRepository userLessonRepository;
     private final UserCourseRepository userCourseRepository;
+    private final AudiobookRepository audiobookRepository;
     private final FileStorageService fileStorageService;
     private final uz.sevenEdu.teacherBot.rating.repository.PointsRepository pointsRepository;
     private final uz.sevenEdu.teacherBot.rating.service.AchievementService achievementService;
@@ -95,7 +96,8 @@ public class LessonServiceImpl implements LessonService {
                             questionRepository.findByLessonId(lessonId).collectList(),
                             exerciseRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
                             ulMono,
-                            nextLessonIdMono
+                            nextLessonIdMono,
+                            audiobookRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList()
                     ).map(tuple -> {
                         Long nextId = tuple.getT5() == 0L ? null : tuple.getT5();
                         UserLesson ul = tuple.getT4();
@@ -104,8 +106,9 @@ public class LessonServiceImpl implements LessonService {
                             .id(lesson.getId())
                             .courseId(lesson.getCourseId())
                             .title(lesson.getName())
+                            .description(lesson.getDescription())
                             .coverImage(fileStorageService.toPublicUrl(lesson.getCoverImage()))
-                            .videoUrl(lesson.getVideoUrl())
+                            .videoUrl(fileStorageService.toPublicUrl(lesson.getVideoUrl()))
                             .orderIndex(lesson.getOrderIndex())
                             .durationSec(lesson.getDurationSec())
                             .completed(completed)
@@ -121,6 +124,9 @@ public class LessonServiceImpl implements LessonService {
                             .exercises(tuple.getT3().stream().map(e -> LessonDetailDto.ExerciseDto.builder()
                                     .id(e.getId()).sentence(e.getSentence()).options(e.getOptions())
                                     .correctAnswer(e.getCorrectAnswer()).orderIndex(e.getOrderIndex()).build()).toList())
+                            .audiobooks(tuple.getT6().stream().map(a -> LessonDetailDto.AudiobookDto.builder()
+                                    .id(a.getId()).title(a.getTitle())
+                                    .url(fileStorageService.toPublicUrl(a.getFilePath())).build()).toList())
                             .build();
                     });
                 });
@@ -137,6 +143,10 @@ public class LessonServiceImpl implements LessonService {
                     }
                     int total = questions.size();
                     int pct = total > 0 ? (int) Math.round(correct * 100.0 / total) : 0;
+                    // Mehmon — natija hisoblanadi, lekin qayd etilmaydi
+                    if (uz.sevenEdu.teacherBot.common.util.GuestUtil.isGuest(userId)) {
+                        return Mono.just(SubmitResultDto.from(pct, List.of()));
+                    }
                     return getOrCreateUserLesson(userId, lessonId)
                             .flatMap(ul -> {
                                 ul.setTestScore(pct);
@@ -158,6 +168,10 @@ public class LessonServiceImpl implements LessonService {
                     }
                     int total = exercises.size();
                     int pct = total > 0 ? (int) Math.round(correct * 100.0 / total) : 0;
+                    // Mehmon — natija hisoblanadi, lekin qayd etilmaydi
+                    if (uz.sevenEdu.teacherBot.common.util.GuestUtil.isGuest(userId)) {
+                        return Mono.just(SubmitResultDto.from(pct, List.of()));
+                    }
                     return getOrCreateUserLesson(userId, lessonId)
                             .flatMap(ul -> {
                                 ul.setExerciseScore(pct);
@@ -173,6 +187,10 @@ public class LessonServiceImpl implements LessonService {
         return vocabularyRepository.findByLessonIdOrderByOrderIndex(lessonId).count()
                 .flatMap(total -> {
                     int pct = total > 0 ? (int) Math.round(request.getScore() * 100.0 / total) : 0;
+                    // Mehmon — natija hisoblanadi, lekin qayd etilmaydi
+                    if (uz.sevenEdu.teacherBot.common.util.GuestUtil.isGuest(userId)) {
+                        return Mono.just(SubmitResultDto.from(pct, List.of()));
+                    }
                     return getOrCreateUserLesson(userId, lessonId)
                             .flatMap(ul -> {
                                 ul.setVocabScore(pct);
@@ -262,6 +280,7 @@ public class LessonServiceImpl implements LessonService {
     private LessonDetailDto buildBasicDto(Lesson l, boolean unlocked, boolean completed, UserLesson ul) {
         return LessonDetailDto.builder()
                 .id(l.getId()).courseId(l.getCourseId()).title(l.getName())
+                .description(l.getDescription())
                 .coverImage(fileStorageService.toPublicUrl(l.getCoverImage()))
                 .orderIndex(l.getOrderIndex()).durationSec(l.getDurationSec())
                 .locked(!unlocked).completed(completed)

@@ -11,9 +11,12 @@ public class CourseDto {
     private String name;
     private String category;
     private String imageUrl;
+    private String backgroundUrl;
     private String flagEmoji;
     private String goal;
     private Boolean isPremium;
+    private Integer price;
+    private String priceLabel;
     private Boolean isEnrolled;
     private BigDecimal progress;
     private int completedLessons;

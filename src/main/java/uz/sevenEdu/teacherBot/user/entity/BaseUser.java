@@ -29,5 +29,7 @@ public class BaseUser {
     private String fcmToken;
     private Long telegramChatId;
     private Boolean isDefault;
+    private Boolean isGuest;
     private LocalDateTime createdAt;
+    private LocalDateTime lastActiveAt;
 }

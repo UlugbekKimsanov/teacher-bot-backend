@@ -14,11 +14,15 @@ import java.util.Map;
 public class WebSocketConfig {
 
     private final ChatWebSocketHandler chatWebSocketHandler;
+    private final GroupChatWebSocketHandler groupChatWebSocketHandler;
 
     @Bean
     public HandlerMapping webSocketHandlerMapping() {
         SimpleUrlHandlerMapping mapping = new SimpleUrlHandlerMapping();
-        mapping.setUrlMap(Map.of("/ws/chat", chatWebSocketHandler));
+        mapping.setUrlMap(Map.of(
+                "/ws/chat", chatWebSocketHandler,
+                "/ws/course-chat", groupChatWebSocketHandler
+        ));
         mapping.setOrder(-1);
         return mapping;
     }

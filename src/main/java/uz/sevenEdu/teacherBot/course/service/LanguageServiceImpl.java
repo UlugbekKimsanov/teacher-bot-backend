@@ -39,31 +39,41 @@ public class LanguageServiceImpl implements LanguageService {
 
     @Override
     public Flux<Language> getAll() {
-        return languageRepository.findAll()
-                .flatMap(lang -> {
-                    Mono<java.util.List<Course>> coursesMono = courseRepository
-                            .findByLanguageId(lang.getId()).collectList();
-                    return coursesMono.flatMap(courses -> {
-                        Language resolved = resolveImageUrls(lang);
-                        resolved.setCourseCount(courses.size());
-                        if (courses.isEmpty()) {
-                            resolved.setStudentCount(0);
-                            return Mono.just(resolved);
-                        }
-                        java.util.List<Long> courseIds = courses.stream()
-                                .map(Course::getId).toList();
-                        return userCourseRepository.findByCourseIdIn(courseIds)
-                                .map(uc -> uc.getUserId())
-                                .distinct()
-                                .count()
-                                .map(studentCount -> {
-                                    resolved.setStudentCount(studentCount);
-                                    return resolved;
-                                });
-                    });
-                })
+        // Mobile faqat yoqilgan (enabled) tillarni ko'radi
+        return languageRepository.findByEnabledTrue()
+                .flatMap(lang -> enrich(lang, true))
                 .collectSortedList((a, b) -> Long.compare(b.getStudentCount(), a.getStudentCount()))
                 .flatMapMany(Flux::fromIterable);
+    }
+
+    @Override
+    public Flux<Language> getAllAdmin() {
+        // Admin barcha tillarni ko'radi (kurs/o'quvchi soni bilan), rasm pathlari xom holatda
+        return languageRepository.findAll()
+                .flatMap(lang -> enrich(lang, false));
+    }
+
+    /** Tilga kurslar soni va (distinct) o'quvchilar sonini hisoblab qo'shadi. */
+    private Mono<Language> enrich(Language lang, boolean resolveUrls) {
+        return courseRepository.findByLanguageId(lang.getId()).collectList()
+                .flatMap(courses -> {
+                    Language out = resolveUrls ? resolveImageUrls(lang) : lang;
+                    out.setCourseCount(courses.size());
+                    if (courses.isEmpty()) {
+                        out.setStudentCount(0);
+                        return Mono.just(out);
+                    }
+                    java.util.List<Long> courseIds = courses.stream()
+                            .map(Course::getId).toList();
+                    return userCourseRepository.findByCourseIdIn(courseIds)
+                            .map(uc -> uc.getUserId())
+                            .distinct()
+                            .count()
+                            .map(studentCount -> {
+                                out.setStudentCount(studentCount);
+                                return out;
+                            });
+                });
     }
 
     @Override
@@ -77,17 +87,6 @@ public class LanguageServiceImpl implements LanguageService {
         lang.setFlagImage(fileStorageService.toPublicUrl(lang.getFlagImage()));
         lang.setBackgroundImage(fileStorageService.toPublicUrl(lang.getBackgroundImage()));
         return lang;
-    }
-
-    @Override
-    public Mono<Language> updateColors(Long id, String colorStart, String colorEnd) {
-        return languageRepository.findById(id)
-                .switchIfEmpty(Mono.error(new NotFoundException("Til topilmadi")))
-                .flatMap(lang -> {
-                    lang.setColorStart(colorStart);
-                    lang.setColorEnd(colorEnd);
-                    return languageRepository.save(lang);
-                });
     }
 
     @Override

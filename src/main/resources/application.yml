@@ -39,6 +39,9 @@ app:
     secret: 7EDUTeacherBotSecretKeyForJWTTokenGeneration2024VeryLongSecretKey
   storage:
     base-path: ./storage
+  firebase:
+    # Firebase service account JSON fayl yo'li. Bo'sh bo'lsa push (FCM) o'chiq bo'ladi.
+    service-account-path: ${FIREBASE_CREDENTIALS:}
   eskiz:
     email: your_eskiz_email@example.com
     password: your_eskiz_password

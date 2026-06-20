@@ -29,12 +29,11 @@ public class Books {
     private Integer coverColor2;    // ARGB int
     private String pages;           // e.g. "380 bet"
     private Integer pageCount;
-    private String format;          // pdf, epub, hardcover, paperback
     private Double rating;
     private Integer reviewCount;
     private String language;
-    private String level;
     private String previewPages;    // JSON array string
+    private String coverImage;      // yuklangan muqova rasmi yo'li
     private Integer imageId;
     private Integer fileId;
     private String filePath;

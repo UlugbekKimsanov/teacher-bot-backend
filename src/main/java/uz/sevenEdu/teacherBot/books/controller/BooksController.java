@@ -68,6 +68,15 @@ public class BooksController {
                 .then(Mono.just(ApiResponse.ok("Progress saqlandi", null)));
     }
 
+    @PostMapping("/{id}/rate")
+    public Mono<ApiResponse<BooksDto>> rate(
+            @PathVariable Long id,
+            @RequestParam int rating,
+            Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return booksService.rateBook(userId, id, rating).map(ApiResponse::ok);
+    }
+
     @PostMapping("/{id}/add-to-library")
     public Mono<ApiResponse<String>> addToLibrary(
             @PathVariable Long id, Authentication auth) {

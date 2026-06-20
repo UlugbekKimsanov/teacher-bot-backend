@@ -116,10 +116,13 @@ public class ChatWebSocketHandler implements WebSocketHandler {
         try {
             JsonNode node = objectMapper.readTree(payload);
             String text = node.has("text") ? node.get("text").asText() : "";
+            String mediaPath = node.hasNonNull("mediaPath") ? node.get("mediaPath").asText() : null;
+            String mediaType = node.hasNonNull("mediaType") ? node.get("mediaType").asText() : null;
 
-            if (text.isBlank()) return Mono.empty();
+            // Matn ham, media ham bo'lmasa — e'tiborsiz
+            if (text.isBlank() && mediaPath == null) return Mono.empty();
 
-            return chatService.saveMessage(courseId, studentId, senderId, senderRole, text)
+            return chatService.saveMessage(courseId, studentId, senderId, senderRole, text, mediaPath, mediaType)
                     .doOnNext(saved -> broadcastToRoom(roomKey, saved))
                     .then();
         } catch (Exception e) {

@@ -22,7 +22,9 @@ app:
   jwt:
     secret: ${JWT_SECRET:7EDUTeacherBotSecretKeyForJWTTokenGeneration2024VeryLongSecretKey}
   storage:
-    base-path: /app/storage
+    base-path: ${STORAGE_PATH:/root/storage}
+  firebase:
+    service-account-path: ${FIREBASE_CREDENTIALS:}
 
 click:
   merchant-id: ${CLICK_MERCHANT_ID:24180}

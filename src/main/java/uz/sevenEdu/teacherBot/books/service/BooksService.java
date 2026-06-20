@@ -35,6 +35,7 @@ public class BooksService {
     private final NotificationService notificationService;
     private final TelegramBotService telegramBotService;
     private final uz.sevenEdu.teacherBot.common.service.FileStorageService fileStorageService;
+    private final uz.sevenEdu.teacherBot.books.repository.BookRatingRepository bookRatingRepository;
     private static final ObjectMapper mapper = new ObjectMapper();
 
     public Flux<BooksDto> getBooksByCategory(String category, Long userId) {
@@ -62,12 +63,60 @@ public class BooksService {
         return booksRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("Kitob topilmadi")))
                 .flatMap(book -> {
-                    if (userId == null) return Mono.just(mapToDto(book, false, false));
-                    return userBookRepository.findByUserIdAndBookId(userId, id)
-                            .map(ub -> mapToDto(book,
-                                    true,
-                                    ub.getIsActive() != null && ub.getIsActive()))
-                            .defaultIfEmpty(mapToDto(book, false, false));
+                    Mono<BooksDto> base;
+                    if (userId == null) {
+                        base = Mono.just(mapToDto(book, false, false));
+                    } else {
+                        base = userBookRepository.findByUserIdAndBookId(userId, id)
+                                .map(ub -> mapToDto(book, true, ub.getIsActive() != null && ub.getIsActive()))
+                                .defaultIfEmpty(mapToDto(book, false, false));
+                    }
+                    if (userId == null) return base;
+                    // Joriy foydalanuvchi qo'ygan bahoni qo'shamiz
+                    return base.flatMap(dto -> bookRatingRepository.findByUserIdAndBookId(userId, id)
+                            .map(r -> { dto.setMyRating(r.getRating()); return dto; })
+                            .defaultIfEmpty(dto));
+                });
+    }
+
+    // ── Reyting (foydalanuvchi baholashi) ──────────────────────────
+    // Yangi kitob 5.0 dan boshlanadi (50 ta 5 baho seed). Har bir haqiqiy baho
+    // bitta "5"ni almashtiradi; 50 tadan oshgach — sof o'rtacha arifmetik.
+    public Mono<BooksDto> rateBook(Long userId, Long bookId, int rating) {
+        final int r = Math.max(1, Math.min(5, rating));
+        LocalDateTime now = LocalDateTime.now();
+        return bookRatingRepository.findByUserIdAndBookId(userId, bookId)
+                .flatMap(existing -> {
+                    existing.setRating(r);
+                    existing.setUpdatedAt(now);
+                    return bookRatingRepository.save(existing);
+                })
+                .switchIfEmpty(Mono.defer(() -> bookRatingRepository.save(
+                        uz.sevenEdu.teacherBot.books.entity.BookRating.builder()
+                                .userId(userId).bookId(bookId).rating(r)
+                                .createdAt(now).updatedAt(now).build())))
+                .then(recomputeRating(bookId))
+                .map(dto -> { dto.setMyRating(r); return dto; });
+    }
+
+    private Mono<BooksDto> recomputeRating(Long bookId) {
+        return Mono.zip(
+                        bookRatingRepository.countByBookId(bookId),
+                        bookRatingRepository.sumByBookId(bookId))
+                .flatMap(t -> {
+                    long count = t.getT1();
+                    long sum = t.getT2();
+                    double rating = (count <= 50)
+                            ? (sum + (50 - count) * 5.0) / 50.0   // qolgan 5 lar bilan
+                            : (double) sum / count;               // sof o'rtacha
+                    double rounded = Math.round(rating * 10.0) / 10.0;
+                    return booksRepository.findById(bookId)
+                            .flatMap(b -> {
+                                b.setRating(rounded);
+                                b.setReviewCount((int) count);
+                                return booksRepository.save(b);
+                            })
+                            .map(b -> mapToDto(b, false, false));
                 });
     }
 
@@ -181,6 +230,8 @@ public class BooksService {
     }
 
     public Mono<Void> updateProgress(Long userId, Long bookId, int readPage, int totalPages) {
+        // Mehmon — kitob o'qish progressi qayd etilmaydi
+        if (uz.sevenEdu.teacherBot.common.util.GuestUtil.isGuest(userId)) return Mono.empty();
         return userBookRepository.updateProgress(userId, bookId, readPage, totalPages);
     }
 
@@ -207,6 +258,9 @@ public class BooksService {
     public Mono<BooksDto> createBook(BooksDto dto) {
         Books book = mapToEntity(dto);
         book.setCreatedAt(LocalDateTime.now());
+        // Yangi kitob 5.0 dan boshlanadi (50 ta 5 baho asosida)
+        book.setRating(5.0);
+        book.setReviewCount(0);
         return booksRepository.save(book).map(b -> mapToDto(b, false, false));
     }
 
@@ -232,11 +286,8 @@ public class BooksService {
                     }
                     if (dto.getPages() != null) existing.setPages(dto.getPages());
                     if (dto.getPageCount() != null) existing.setPageCount(dto.getPageCount());
-                    if (dto.getFormat() != null) existing.setFormat(dto.getFormat());
-                    if (dto.getRating() != null) existing.setRating(dto.getRating());
-                    if (dto.getReviewCount() != null) existing.setReviewCount(dto.getReviewCount());
+                    // Reyting endi qo'lda emas — foydalanuvchi baholari asosida hisoblanadi
                     if (dto.getLanguage() != null) existing.setLanguage(dto.getLanguage());
-                    if (dto.getLevel() != null) existing.setLevel(dto.getLevel());
                     if (dto.getPreviewPages() != null) {
                         try { existing.setPreviewPages(mapper.writeValueAsString(dto.getPreviewPages())); }
                         catch (Exception ignored) {}
@@ -292,11 +343,10 @@ public class BooksService {
                 .coverColors(coverColors)
                 .pages(entity.getPages())
                 .pageCount(entity.getPageCount())
-                .format(entity.getFormat())
                 .rating(entity.getRating())
                 .reviewCount(entity.getReviewCount())
                 .language(entity.getLanguage())
-                .level(entity.getLevel())
+                .coverUrl(fileStorageService.toPublicUrl(entity.getCoverImage()))
                 .previewPages(previewPages)
                 .isPurchased(isPurchased)
                 .inLibrary(inLibrary)
@@ -330,11 +380,9 @@ public class BooksService {
                 .coverColor2(colors != null && colors.size() > 1 ? colors.get(1) : null)
                 .pages(dto.getPages())
                 .pageCount(dto.getPageCount())
-                .format(dto.getFormat())
                 .rating(dto.getRating())
                 .reviewCount(dto.getReviewCount())
                 .language(dto.getLanguage())
-                .level(dto.getLevel())
                 .previewPages(previewJson)
                 .imageId(dto.getImageId())
                 .fileId(dto.getFileId())

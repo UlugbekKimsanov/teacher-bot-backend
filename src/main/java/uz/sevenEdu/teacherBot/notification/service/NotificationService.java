@@ -9,12 +9,14 @@ import uz.sevenEdu.teacherBot.notification.repository.NotificationRepository;
 import uz.sevenEdu.teacherBot.user.repository.UserRepository;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
+    private final FcmService fcmService;
 
     public Flux<Notification> getUserNotifications(Long userId) {
         return notificationRepository.findByUserIdOrderByCreatedAtDesc(userId);
@@ -42,7 +44,30 @@ public class NotificationService {
                 .isRead(false)
                 .createdAt(LocalDateTime.now())
                 .build();
-        return notificationRepository.save(n);
+        // 1) Ilova ichidagi xabarni saqlash  2) qurilmaga push yuborish (token bo'lsa)
+        return notificationRepository.save(n)
+                .flatMap(saved -> pushToUser(userId, title, body, type).thenReturn(saved));
+    }
+
+    /** Foydalanuvchining FCM tokeni bo'lsa, push yuboradi (fire-and-forget, xato bo'lsa e'tiborsiz). */
+    private Mono<Void> pushToUser(Long userId, String title, String body, String type) {
+        if (!fcmService.isEnabled()) return Mono.empty();
+        return userRepository.findById(userId)
+                .flatMap(u -> {
+                    String token = u.getFcmToken();
+                    if (token == null || token.isBlank()) return Mono.empty();
+                    Map<String, String> data = new java.util.HashMap<>();
+                    if (type != null) data.put("type", type);
+                    return fcmService.send(token, title, body, data);
+                })
+                .onErrorResume(e -> Mono.empty());
+    }
+
+    /** Bir nechta foydalanuvchiga bir xil xabar yuborish. Yuborilgan soni qaytadi. */
+    public Mono<Long> sendBulk(java.util.Collection<Long> userIds, String title, String body, String type) {
+        return Flux.fromIterable(new java.util.LinkedHashSet<>(userIds))
+                .flatMap(uid -> send(uid, title, body, type, null))
+                .count();
     }
 
     public Mono<Void> deleteNotification(Long notificationId, Long userId) {

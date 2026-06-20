@@ -15,7 +15,10 @@ public class ChatMessageDto {
     private Long studentId;
     private Long senderId;
     private String senderRole;
+    private String senderName;
     private String text;
+    private String mediaUrl;   // public URL (/files/...)
+    private String mediaType;  // "image" or "file"
     private String createdAt;
     private String type; // "message", "history", "error"
 }

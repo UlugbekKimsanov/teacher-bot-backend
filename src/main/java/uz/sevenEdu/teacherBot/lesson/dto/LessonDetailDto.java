@@ -9,6 +9,7 @@ public class LessonDetailDto {
     private Long id;
     private Long courseId;
     private String title;
+    private String description;
     private String coverImage;
     private String videoUrl;
     private Integer orderIndex;
@@ -22,6 +23,14 @@ public class LessonDetailDto {
     private List<VocabDto> vocabulary;
     private List<QuestionDto> questions;
     private List<ExerciseDto> exercises;
+    private List<AudiobookDto> audiobooks;
+
+    @Data @Builder
+    public static class AudiobookDto {
+        private Long id;
+        private String title;
+        private String url;
+    }
 
     @Data @Builder
     public static class VocabDto {

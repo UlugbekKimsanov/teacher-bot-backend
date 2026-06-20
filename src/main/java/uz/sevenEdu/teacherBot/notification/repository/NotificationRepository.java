@@ -16,6 +16,10 @@ public interface NotificationRepository extends ReactiveCrudRepository<Notificat
     @Query("SELECT COUNT(*) FROM notifications WHERE user_id = :userId AND is_read = false")
     Mono<Long> countUnreadByUserId(Long userId);
 
+    /** Avtomatik eslatma eskalatsiyasi uchun — eng oxirgi INACTIVITY xabari */
+    @Query("SELECT * FROM notifications WHERE user_id = :userId AND type = 'INACTIVITY' ORDER BY created_at DESC LIMIT 1")
+    Mono<Notification> findLatestInactivity(Long userId);
+
     @Modifying
     @Query("UPDATE notifications SET is_read = true WHERE id = :id AND user_id = :userId")
     Mono<Integer> markAsRead(Long id, Long userId);

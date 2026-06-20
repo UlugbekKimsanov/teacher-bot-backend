@@ -42,7 +42,11 @@ public class CourseServiceImpl implements CourseService {
     public Flux<CourseDto> getCoursesByCategory(String category, Long userId) {
         return languageRepository.findByName(category)
                 .flatMapMany(lang -> courseRepository.findByLanguageId(lang.getId()))
-                .flatMap(course -> enrichCourse(course, userId));
+                // Admin sozlagan tartib (order_index), yo'q bo'lsa yaratilish tartibi (id)
+                .sort((a, b) -> Integer.compare(
+                        a.getOrderIndex() != null ? a.getOrderIndex() : a.getId().intValue(),
+                        b.getOrderIndex() != null ? b.getOrderIndex() : b.getId().intValue()))
+                .concatMap(course -> enrichCourse(course, userId));
     }
 
     @Override
@@ -56,14 +60,20 @@ public class CourseServiceImpl implements CourseService {
     public Mono<CourseDto> enrollCourse(Long userId, Long courseId) {
         return courseRepository.findById(courseId)
                 .switchIfEmpty(Mono.error(new NotFoundException("Kurs topilmadi")))
-                .flatMap(course -> userCourseRepository.existsByUserIdAndCourseId(userId, courseId)
-                        .flatMap(exists -> {
-                            if (exists) return Mono.just(course);
-                            UserCourse uc = UserCourse.builder()
-                                    .userId(userId).courseId(courseId)
-                                    .progress(BigDecimal.ZERO).createdAt(LocalDateTime.now()).build();
-                            return userCourseRepository.save(uc).thenReturn(course);
-                        }))
+                .flatMap(course -> {
+                    // Mehmon — kursga yozilmaydi (progress/enrollment qayd etilmaydi)
+                    if (uz.sevenEdu.teacherBot.common.util.GuestUtil.isGuest(userId)) {
+                        return Mono.just(course);
+                    }
+                    return userCourseRepository.existsByUserIdAndCourseId(userId, courseId)
+                            .flatMap(exists -> {
+                                if (exists) return Mono.just(course);
+                                UserCourse uc = UserCourse.builder()
+                                        .userId(userId).courseId(courseId)
+                                        .progress(BigDecimal.ZERO).createdAt(LocalDateTime.now()).build();
+                                return userCourseRepository.save(uc).thenReturn(course);
+                            });
+                })
                 .flatMap(course -> enrichCourse(course, userId));
     }
 
@@ -123,10 +133,13 @@ public class CourseServiceImpl implements CourseService {
                 .id(c.getId())
                 .name(c.getName())
                 .category(category)
-                .imageUrl(c.getCoverImage())
+                .imageUrl(fileStorageService.toPublicUrl(c.getCoverImage()))
+                .backgroundUrl(fileStorageService.toPublicUrl(c.getBackgroundImage()))
                 .flagEmoji(c.getFlagEmoji())
                 .goal(c.getGoal())
                 .isPremium(c.getIsPremium() != null ? c.getIsPremium() : true)
+                .price(c.getPrice())
+                .priceLabel(c.getPriceLabel())
                 .isEnrolled(enrolled)
                 .progress(progress)
                 .completedLessons(completedLessons)

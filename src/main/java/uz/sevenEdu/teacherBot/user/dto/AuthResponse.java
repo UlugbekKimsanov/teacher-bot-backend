@@ -14,4 +14,5 @@ public class AuthResponse {
     private String phone;
     private UserRole role;
     private String token;
+    private Boolean isGuest;
 }

@@ -19,5 +19,7 @@ public class ChatMessage {
     private Long senderId;
     private String senderRole; // "user" or "teacher"
     private String text;
+    private String mediaPath;  // yuklangan media yo'li
+    private String mediaType;  // "image" or "file"
     private LocalDateTime createdAt;
 }

@@ -9,7 +9,7 @@ import uz.sevenEdu.teacherBot.course.entity.Language;
 public interface LanguageService {
     Mono<Language> create(String name, String description);
     Flux<Language> getAll();
+    Flux<Language> getAllAdmin();
     Mono<Language> getById(Long id);
     Mono<Language> uploadImage(Long id, LanguageFileType fileType, FilePart filePart);
-    Mono<Language> updateColors(Long id, String colorStart, String colorEnd);
 }

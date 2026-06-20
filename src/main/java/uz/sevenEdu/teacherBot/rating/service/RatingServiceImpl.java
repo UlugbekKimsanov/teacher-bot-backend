@@ -173,6 +173,8 @@ public class RatingServiceImpl implements RatingService {
 
     @Override
     public Mono<Void> recordAttendance(Long userId) {
+        // Mehmon — davomat/streak qayd etilmaydi
+        if (uz.sevenEdu.teacherBot.common.util.GuestUtil.isGuest(userId)) return Mono.empty();
         return userCourseRepository.findByUserId(userId)
                 .flatMap(uc -> attendanceRepository.recordToday(userId, uc.getCourseId()))
                 .then();
@@ -181,6 +183,7 @@ public class RatingServiceImpl implements RatingService {
     @Override
     public Mono<RatingDto.LeaderboardDto> getLeaderboard(Long currentUserId) {
         return userRepository.findByRole("STUDENT")
+                .filter(user -> !Boolean.TRUE.equals(user.getIsGuest()))
                 .flatMap(user -> pointsRepository.sumByUserId(user.getId())
                         .map(total -> Map.entry(user, total.intValue())))
                 .collectSortedList((a, b) -> Integer.compare(b.getValue(), a.getValue()))

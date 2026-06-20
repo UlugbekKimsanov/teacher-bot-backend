@@ -28,4 +28,8 @@ public interface AttendanceRepository extends ReactiveCrudRepository<Attendance,
     @Modifying
     @Query("INSERT INTO attendance (user_id, course_id, attended_at) VALUES (:userId, :courseId, CURRENT_DATE) ON CONFLICT (user_id, course_id, attended_at) DO NOTHING")
     Mono<Integer> recordToday(Long userId, Long courseId);
+
+    /** Bugun davomat qilgan (faol) o'quvchilar soni (distinct) */
+    @Query("SELECT COUNT(DISTINCT user_id) FROM attendance WHERE attended_at = CURRENT_DATE")
+    Mono<Long> countActiveToday();
 }

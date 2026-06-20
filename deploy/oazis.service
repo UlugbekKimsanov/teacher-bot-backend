@@ -1,0 +1,17 @@
+[Unit]
+Description=OAZIS Teacher Bot Backend
+After=postgresql.service redis-server.service network.target
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root
+EnvironmentFile=/root/app.env
+ExecStart=/usr/bin/java -Xmx256m -jar /root/app.jar
+Restart=always
+RestartSec=10
+SuccessExitStatus=143
+
+[Install]
+WantedBy=multi-user.target

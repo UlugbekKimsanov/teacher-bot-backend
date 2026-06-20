@@ -40,7 +40,14 @@ public class OtpService {
         });
     }
 
+    // TEST: master kod — har doim o'tadi. PRODUCTION'da olib tashlash kerak!
+    private static final String TEST_MASTER_OTP = "55555";
+
     public Mono<Void> verifyOtp(String email, String otpCode) {
+        // TEST bypass: 55555 bo'lsa, saqlangan kod bo'lmasa ham o'tkazib yuboramiz
+        if (TEST_MASTER_OTP.equals(otpCode)) {
+            return redisTemplate.delete(OTP_PREFIX + email).then();
+        }
         return redisTemplate.opsForValue().get(OTP_PREFIX + email)
                 .switchIfEmpty(Mono.error(new BadRequestException("OTP kod topilmadi yoki muddati o'tgan")))
                 .flatMap(storedOtp -> {

@@ -7,11 +7,13 @@ import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import org.springframework.web.util.UriUtils;
 
 import uz.sevenEdu.teacherBot.common.enums.LanguageFileType;
 import uz.sevenEdu.teacherBot.common.enums.LessonFileType;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -136,6 +138,83 @@ public class FileStorageService {
         return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
     }
 
+    /**
+     * Kurs card (cover) rasmi saqlash
+     * Path: courses/{courseId}/cover_{courseId}_{uid}.{ext}
+     */
+    public Mono<String> saveCourseCover(Long courseId, FilePart filePart, String oldPath) {
+        deleteIfExists(oldPath);
+        String ext = getExtension(filePart.filename());
+        String uid = UUID.randomUUID().toString().substring(0, 8);
+        String fileName = "cover_" + courseId + "_" + uid + ext;
+        Path dest = basePath.resolve("courses").resolve(String.valueOf(courseId)).resolve(fileName);
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
+    /**
+     * Kurs background rasmi saqlash
+     * Path: courses/{courseId}/bg_{courseId}_{uid}.{ext}
+     */
+    public Mono<String> saveCourseBackground(Long courseId, FilePart filePart, String oldPath) {
+        deleteIfExists(oldPath);
+        String ext = getExtension(filePart.filename());
+        String uid = UUID.randomUUID().toString().substring(0, 8);
+        String fileName = "bg_" + courseId + "_" + uid + ext;
+        Path dest = basePath.resolve("courses").resolve(String.valueOf(courseId)).resolve(fileName);
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
+    /** Tanaffus guruhi fon rasmini saqlash. Path: break/{groupId}/bg_{uid}.{ext} */
+    public Mono<String> saveBreakBackground(Long groupId, FilePart filePart, String oldPath) {
+        deleteIfExists(oldPath);
+        String ext = getExtension(filePart.filename());
+        String uid = UUID.randomUUID().toString().substring(0, 8);
+        String fileName = "bg_" + groupId + "_" + uid + ext;
+        Path dest = basePath.resolve("break").resolve(String.valueOf(groupId)).resolve(fileName);
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
+    /** Tanaffus musiqasini saqlash. Path: break/{groupId}/track_{uid}.{ext} */
+    public Mono<String> saveBreakTrack(Long groupId, FilePart filePart) {
+        String ext = getExtension(filePart.filename());
+        String uid = UUID.randomUUID().toString().substring(0, 8);
+        String fileName = "track_" + groupId + "_" + uid + ext;
+        Path dest = basePath.resolve("break").resolve(String.valueOf(groupId)).resolve(fileName);
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
+    /**
+     * Dars videosini saqlash
+     * Path: lessons/{lessonId}/video_{lessonId}_{uid}.{ext}
+     */
+    public Mono<String> saveLessonVideo(Long lessonId, FilePart filePart, String oldPath) {
+        deleteIfExists(oldPath);
+        String ext = getExtension(filePart.filename());
+        String uid = UUID.randomUUID().toString().substring(0, 8);
+        String fileName = "video_" + lessonId + "_" + uid + ext;
+        Path dest = basePath.resolve("lessons").resolve(String.valueOf(lessonId)).resolve(fileName);
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
+    /** Dars audio kitobini saqlash. Path: lessons/{lessonId}/audio_{uid}.{ext} */
+    public Mono<String> saveLessonAudiobook(Long lessonId, FilePart filePart) {
+        String ext = getExtension(filePart.filename());
+        String uid = UUID.randomUUID().toString().substring(0, 8);
+        String fileName = "audio_" + lessonId + "_" + uid + ext;
+        Path dest = basePath.resolve("lessons").resolve(String.valueOf(lessonId)).resolve(fileName);
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
+    /** Dars muqova (oboloshka) rasmini saqlash. Path: lessons/{lessonId}/cover_{uid}.{ext} */
+    public Mono<String> saveLessonCover(Long lessonId, FilePart filePart, String oldPath) {
+        deleteIfExists(oldPath);
+        String ext = getExtension(filePart.filename());
+        String uid = UUID.randomUUID().toString().substring(0, 8);
+        String fileName = "cover_" + lessonId + "_" + uid + ext;
+        Path dest = basePath.resolve("lessons").resolve(String.valueOf(lessonId)).resolve(fileName);
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
     // ── Path → URL ─────────────────────────────────────────
 
     /**
@@ -145,6 +224,8 @@ public class FileStorageService {
      */
     public String toPublicUrl(String dbPath) {
         if (dbPath == null || dbPath.isBlank()) return null;
+        // Allaqachon to'liq URL bo'lsa (masalan seed dagi tashqi video) — o'zgartirmaymiz
+        if (dbPath.startsWith("http://") || dbPath.startsWith("https://")) return dbPath;
         String normalized = dbPath.replace("\\", "/");
         // Agar absolute path bo'lsa, basePath ni olib tashlaymiz
         String baseStr = basePath.toString().replace("\\", "/");
@@ -152,7 +233,9 @@ public class FileStorageService {
             normalized = normalized.substring(baseStr.length());
             if (normalized.startsWith("/")) normalized = normalized.substring(1);
         }
-        return "/files/" + normalized;
+        // URL-enkod (bo'sh joy -> %20 va h.k.), '/' saqlanadi — aks holda probelli
+        // papka nomlari (masalan "Ingliz tili_1") URL'da buziladi
+        return "/files/" + UriUtils.encodePath(normalized, StandardCharsets.UTF_8);
     }
 
     // ── File yuklash (GET) ─────────────────────────────────

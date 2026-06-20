@@ -35,6 +35,12 @@ public class AuthController {
         return authService.googleAuth(request).map(ApiResponse::ok);
     }
 
+    /** Mehmon (guest) sifatida kirish — bepul kontentni ko'rish uchun token. */
+    @PostMapping("/guest")
+    public Mono<ApiResponse<AuthResponse>> guest() {
+        return authService.guestLogin().map(ApiResponse::ok);
+    }
+
     @PostMapping("/phone/send-otp")
     public Mono<ApiResponse<Void>> sendPhoneOtp(@Valid @RequestBody PhoneOtpRequest request) {
         return authService.sendPhoneOtp(request.getPhone(), request.isLogin())

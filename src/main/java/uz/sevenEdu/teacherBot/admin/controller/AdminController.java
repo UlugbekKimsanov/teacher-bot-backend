@@ -40,6 +40,7 @@ public class AdminController {
     private final UserRepository userRepository;
     private final CourseRepository courseRepository;
     private final LanguageRepository languageRepository;
+    private final uz.sevenEdu.teacherBot.course.service.LanguageService languageService;
     private final LessonRepository lessonRepository;
     private final VocabularyRepository vocabularyRepository;
     private final QuestionRepository questionRepository;
@@ -51,6 +52,13 @@ public class AdminController {
     private final FileStorageService fileStorageService;
     private final NewsRepository newsRepository;
     private final SaleRecordRepository saleRecordRepository;
+    private final uz.sevenEdu.teacherBot.payment.repository.PaymentMethodRepository paymentMethodRepository;
+    private final uz.sevenEdu.teacherBot.payment.order.repository.PaymentOrderRepository paymentOrderRepository;
+    private final uz.sevenEdu.teacherBot.rating.repository.AttendanceRepository attendanceRepository;
+    private final uz.sevenEdu.teacherBot.notification.service.NotificationService notificationService;
+    private final uz.sevenEdu.teacherBot.breakmusic.repository.BreakGroupRepository breakGroupRepository;
+    private final uz.sevenEdu.teacherBot.breakmusic.repository.BreakTrackRepository breakTrackRepository;
+    private final uz.sevenEdu.teacherBot.lesson.repository.AudiobookRepository audiobookRepository;
     private final PasswordEncoder passwordEncoder;
 
     // ── Dashboard ──────────────────────────────────────────────
@@ -59,21 +67,130 @@ public class AdminController {
     public Mono<ApiResponse<Map<String, Object>>> dashboard(Authentication auth) {
         return requireAdmin(auth).then(
             Mono.zip(
-                userRepository.findByRole("STUDENT").count(),
+                userRepository.countRealStudents(),
                 userRepository.findByRole("TEACHER").count(),
                 courseRepository.findAll().count(),
                 lessonRepository.findAll().count(),
-                booksRepository.findAll().count()
+                booksRepository.findAll().count(),
+                saleRecordRepository.totalRevenue(),       // kitob savdosi (so'm)
+                paymentOrderRepository.totalPaidAmount(),   // to'langan buyurtmalar (so'm)
+                attendanceRepository.countActiveToday()     // bugun faol o'quvchilar
             ).map(t -> {
+                long revenue = t.getT6() + t.getT7().longValue();
                 Map<String, Object> stats = new HashMap<>();
                 stats.put("totalStudents", t.getT1());
                 stats.put("totalTeachers", t.getT2());
                 stats.put("totalCourses", t.getT3());
                 stats.put("totalLessons", t.getT4());
                 stats.put("totalBooks", t.getT5());
-                stats.put("activeStudentsToday", 0);
-                stats.put("revenue", 0);
+                stats.put("activeStudentsToday", t.getT8());
+                stats.put("revenue", revenue);
                 return ApiResponse.ok(stats);
+            })
+        );
+    }
+
+    /** Dashboard "so'nggi faoliyat" — oxirgi ro'yxatdan o'tganlar + kitob savdolari. */
+    @GetMapping("/recent-activity")
+    public Mono<ApiResponse<List<Map<String, Object>>>> recentActivity(Authentication auth) {
+        return requireAdmin(auth).then(
+            Mono.zip(
+                userRepository.findRecentByRole("STUDENT").collectList(),
+                saleRecordRepository.findAllByOrderByCreatedAtDesc().take(6).collectList()
+            ).map(t -> {
+                List<Map<String, Object>> items = new java.util.ArrayList<>();
+                t.getT1().forEach(u -> {
+                    String fn = u.getFirstName() != null ? u.getFirstName() : "";
+                    String ln = u.getLastName() != null ? u.getLastName() : "";
+                    String name = (fn + " " + ln).trim();
+                    if (name.isEmpty()) name = u.getEmail() != null ? u.getEmail() : "Foydalanuvchi";
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("text", "Yangi o'quvchi ro'yxatdan o'tdi: " + name);
+                    m.put("_at", u.getCreatedAt());
+                    items.add(m);
+                });
+                t.getT2().forEach(s -> {
+                    String buyer = s.getBuyerName() != null ? " — " + s.getBuyerName() : "";
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("text", "Kitob sotib olindi: " + s.getBookTitle() + buyer);
+                    m.put("_at", s.getCreatedAt());
+                    items.add(m);
+                });
+                items.sort((a, b) -> {
+                    java.time.LocalDateTime ta = (java.time.LocalDateTime) a.get("_at");
+                    java.time.LocalDateTime tb = (java.time.LocalDateTime) b.get("_at");
+                    if (ta == null && tb == null) return 0;
+                    if (ta == null) return 1;
+                    if (tb == null) return -1;
+                    return tb.compareTo(ta);
+                });
+                List<Map<String, Object>> result = new java.util.ArrayList<>();
+                items.stream().limit(8).forEach(m -> {
+                    java.time.LocalDateTime at = (java.time.LocalDateTime) m.get("_at");
+                    Map<String, Object> out = new HashMap<>();
+                    out.put("text", m.get("text"));
+                    out.put("createdAt", at != null ? at.toString() : null);
+                    result.add(out);
+                });
+                return ApiResponse.ok(result);
+            })
+        );
+    }
+
+    /** Daromad ro'yxati — har bir to'lov to'liq detali bilan (yangidan eskiga). */
+    @GetMapping("/income")
+    public Mono<ApiResponse<List<Map<String, Object>>>> income(Authentication auth) {
+        return requireAdmin(auth).then(
+            Mono.zip(
+                saleRecordRepository.findAllByOrderByCreatedAtDesc().map(s -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("who", s.getBuyerName() != null ? s.getBuyerName() : "Noma'lum");
+                    m.put("operator", s.getPaymentMethod());
+                    m.put("product", s.getBookTitle());
+                    m.put("productType", "BOOK");
+                    m.put("amount", s.getAmount());
+                    m.put("createdAt", s.getCreatedAt() != null ? s.getCreatedAt().toString() : null);
+                    m.put("_at", s.getCreatedAt());
+                    return m;
+                }).collectList(),
+                paymentOrderRepository.findPaidOrders().flatMap(o -> {
+                    Mono<String> whoMono = userRepository.findById(o.getUserId())
+                            .map(u -> {
+                                String fn = u.getFirstName() != null ? u.getFirstName() : "";
+                                String ln = u.getLastName() != null ? u.getLastName() : "";
+                                String nm = (fn + " " + ln).trim();
+                                return nm.isEmpty() ? (u.getEmail() != null ? u.getEmail() : "Foydalanuvchi") : nm;
+                            })
+                            .defaultIfEmpty("Noma'lum");
+                    Mono<String> productMono = "COURSE".equalsIgnoreCase(o.getProductType())
+                            ? courseRepository.findById(o.getProductId()).map(Course::getName).defaultIfEmpty("Kurs #" + o.getProductId())
+                            : booksRepository.findById(o.getProductId()).map(Books::getTitle).defaultIfEmpty("Kitob #" + o.getProductId());
+                    return Mono.zip(whoMono, productMono).map(tp -> {
+                        Map<String, Object> m = new HashMap<>();
+                        m.put("who", tp.getT1());
+                        m.put("operator", o.getPaymentMethod());
+                        m.put("product", tp.getT2());
+                        m.put("productType", o.getProductType());
+                        m.put("amount", o.getAmount() != null ? o.getAmount().longValue() : 0);
+                        m.put("createdAt", o.getCreatedAt() != null ? o.getCreatedAt().toString() : null);
+                        m.put("_at", o.getCreatedAt());
+                        return m;
+                    });
+                }).collectList()
+            ).map(t -> {
+                List<Map<String, Object>> all = new java.util.ArrayList<>();
+                all.addAll(t.getT1());
+                all.addAll(t.getT2());
+                all.sort((a, b) -> {
+                    java.time.LocalDateTime ta = (java.time.LocalDateTime) a.get("_at");
+                    java.time.LocalDateTime tb = (java.time.LocalDateTime) b.get("_at");
+                    if (ta == null && tb == null) return 0;
+                    if (ta == null) return 1;
+                    if (tb == null) return -1;
+                    return tb.compareTo(ta);
+                });
+                all.forEach(m -> m.remove("_at"));
+                return ApiResponse.ok(all);
             })
         );
     }
@@ -209,65 +326,163 @@ public class AdminController {
         });
     }
 
-    // ── Languages CRUD ──────────────────────────────────────────
-
-    /** Oldindan belgilangan tillar ro'yxati — admin tanlab yaratishi uchun */
-    @GetMapping("/languages/predefined")
-    public Mono<ApiResponse<List<Map<String, String>>>> getPredefinedLanguages(Authentication auth) {
-        return requireAdmin(auth).thenReturn(ApiResponse.ok(PREDEFINED_LANGUAGES));
-    }
+    // ── Languages (faqat enable/disable) ────────────────────────
+    // Eslatma: tillar ro'yxati belgilangan (top 30). Admin yangi til
+    // qo'sha olmaydi yoki o'chira olmaydi — faqat enable/disable qiladi.
 
     @GetMapping("/languages")
     public Mono<ApiResponse<List<Language>>> getLanguages(Authentication auth) {
         return requireAdmin(auth).then(
-            languageRepository.findAll().collectList().map(ApiResponse::ok)
+            languageService.getAllAdmin().collectList().map(ApiResponse::ok)
         );
     }
 
-    /**
-     * Til yaratish. flagEmoji va ranglar oldindan belgilangan ro'yxatdan avtomatik to'ldiriladi.
-     * Agar body da flagEmoji, colorStart, colorEnd bo'lmasa — predefined dan olinadi.
-     */
-    @PostMapping("/languages")
-    public Mono<ApiResponse<Language>> createLanguage(Authentication auth, @RequestBody Language lang) {
-        return requireAdmin(auth).then(Mono.defer(() -> {
-            // Agar flagEmoji/ranglar berilmagan bo'lsa, predefined dan topib to'ldirish
-            if (lang.getName() != null) {
-                String nameLower = lang.getName().toLowerCase().trim();
-                for (var p : PREDEFINED_LANGUAGES) {
-                    if (p.get("name").equalsIgnoreCase(lang.getName()) ||
-                        nameLower.contains(p.get("keywords").split(",")[0])) {
-                        if (lang.getFlagEmoji() == null) lang.setFlagEmoji(p.get("flagEmoji"));
-                        if (lang.getColorStart() == null) lang.setColorStart(p.get("colorStart"));
-                        if (lang.getColorEnd() == null) lang.setColorEnd(p.get("colorEnd"));
-                        break;
-                    }
-                }
-            }
-            return languageRepository.save(lang).map(ApiResponse::ok);
-        }));
-    }
-
-    @PutMapping("/languages/{id}")
-    public Mono<ApiResponse<Language>> updateLanguage(Authentication auth, @PathVariable Long id, @RequestBody Language body) {
+    /** Tilni yoqish/o'chirish (enable/disable). */
+    @PatchMapping("/languages/{id}/status")
+    public Mono<ApiResponse<Language>> setLanguageStatus(Authentication auth,
+                                                         @PathVariable Long id,
+                                                         @RequestParam boolean enabled) {
         return requireAdmin(auth).then(
             languageRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("Til topilmadi")))
                 .flatMap(lang -> {
-                    if (body.getName() != null) lang.setName(body.getName());
-                    if (body.getDescription() != null) lang.setDescription(body.getDescription());
-                    if (body.getFlagEmoji() != null) lang.setFlagEmoji(body.getFlagEmoji());
-                    if (body.getColorStart() != null) lang.setColorStart(body.getColorStart());
-                    if (body.getColorEnd() != null) lang.setColorEnd(body.getColorEnd());
+                    lang.setEnabled(enabled);
                     return languageRepository.save(lang);
                 })
                 .map(ApiResponse::ok)
         );
     }
 
-    @DeleteMapping("/languages/{id}")
-    public Mono<ApiResponse<Void>> deleteLanguage(Authentication auth, @PathVariable Long id) {
+    // ── Tanaffus musiqasi (admin) ───────────────────────────────
+
+    @GetMapping("/break-groups")
+    public Mono<ApiResponse<List<uz.sevenEdu.teacherBot.breakmusic.entity.BreakGroup>>> getBreakGroups(Authentication auth) {
         return requireAdmin(auth).then(
-            languageRepository.deleteById(id).then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+            breakGroupRepository.findAllByOrderByOrderIndexAsc()
+                .flatMap(group -> breakTrackRepository.findByGroupIdOrderById(group.getId())
+                        .map(t -> { t.setFilePath(fileStorageService.toPublicUrl(t.getFilePath())); return t; })
+                        .collectList()
+                        .map(tracks -> {
+                            group.setBackgroundImage(fileStorageService.toPublicUrl(group.getBackgroundImage()));
+                            group.setTracks(tracks);
+                            return group;
+                        }))
+                .collectList().map(ApiResponse::ok)
+        );
+    }
+
+    /** Guruh fon rasmini yuklash. */
+    @PostMapping(value = "/break-groups/{id}/upload-bg", consumes = "multipart/form-data")
+    public Mono<ApiResponse<uz.sevenEdu.teacherBot.breakmusic.entity.BreakGroup>> uploadBreakBg(
+            Authentication auth, @PathVariable Long id, @RequestPart("file") FilePart file) {
+        return requireAdmin(auth).then(
+            breakGroupRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("Guruh topilmadi")))
+                .flatMap(g -> fileStorageService.saveBreakBackground(id, file, g.getBackgroundImage())
+                    .flatMap(path -> { g.setBackgroundImage(path); return breakGroupRepository.save(g); }))
+                .map(ApiResponse::ok)
+        );
+    }
+
+    /** Guruhga musiqa qo'shish (fayl). */
+    @PostMapping(value = "/break-groups/{id}/tracks", consumes = "multipart/form-data")
+    public Mono<ApiResponse<uz.sevenEdu.teacherBot.breakmusic.entity.BreakTrack>> uploadBreakTrack(
+            Authentication auth, @PathVariable Long id,
+            @RequestPart("file") FilePart file,
+            @RequestParam(required = false) String title) {
+        return requireAdmin(auth).then(
+            breakGroupRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("Guruh topilmadi")))
+                .flatMap(g -> fileStorageService.saveBreakTrack(id, file)
+                    .flatMap(path -> breakTrackRepository.save(
+                            uz.sevenEdu.teacherBot.breakmusic.entity.BreakTrack.builder()
+                                    .groupId(id)
+                                    .title(title != null && !title.isBlank() ? title : file.filename())
+                                    .filePath(path)
+                                    .createdAt(java.time.LocalDateTime.now())
+                                    .build())))
+                .map(ApiResponse::ok)
+        );
+    }
+
+    @DeleteMapping("/break-tracks/{id}")
+    public Mono<ApiResponse<Void>> deleteBreakTrack(Authentication auth, @PathVariable Long id) {
+        return requireAdmin(auth).then(
+            breakTrackRepository.deleteById(id).then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+        );
+    }
+
+    // ── Bildirishnoma yuborish (admin) ──────────────────────────
+
+    /**
+     * Admin tomonidan xabar yuborish.
+     * target: ALL (barchaga) | STUDENTS | TEACHERS | COURSE | USERS
+     * COURSE uchun courseId, USERS uchun userIds majburiy.
+     */
+    @PostMapping("/notifications")
+    public Mono<ApiResponse<Map<String, Object>>> sendNotification(Authentication auth,
+                                                                   @RequestBody Map<String, Object> body) {
+        return requireAdmin(auth).then(Mono.defer(() -> {
+            String target = String.valueOf(body.getOrDefault("target", "ALL")).toUpperCase();
+            String title = body.get("title") != null ? body.get("title").toString().trim() : "";
+            String text = body.get("body") != null ? body.get("body").toString().trim() : "";
+            if (title.isEmpty() || text.isEmpty()) {
+                return Mono.error(new uz.sevenEdu.teacherBot.common.exception.BadRequestException("Sarlavha va matn majburiy"));
+            }
+
+            reactor.core.publisher.Flux<Long> userIds;
+            switch (target) {
+                case "STUDENTS" -> userIds = userRepository.findByRole("STUDENT").map(BaseUser::getId);
+                case "TEACHERS" -> userIds = userRepository.findByRole("TEACHER").map(BaseUser::getId);
+                case "COURSE" -> {
+                    Long courseId = body.get("courseId") != null
+                            ? Long.valueOf(body.get("courseId").toString()) : null;
+                    if (courseId == null) return Mono.error(new uz.sevenEdu.teacherBot.common.exception.BadRequestException("courseId majburiy"));
+                    userIds = userCourseRepository.findByCourseId(courseId)
+                            .map(uz.sevenEdu.teacherBot.course.entity.UserCourse::getUserId);
+                }
+                case "USERS" -> {
+                    Object raw = body.get("userIds");
+                    if (!(raw instanceof List<?> list) || list.isEmpty()) {
+                        return Mono.error(new uz.sevenEdu.teacherBot.common.exception.BadRequestException("userIds majburiy"));
+                    }
+                    java.util.List<Long> ids = list.stream()
+                            .map(o -> Long.valueOf(o.toString())).toList();
+                    userIds = reactor.core.publisher.Flux.fromIterable(ids);
+                }
+                default -> userIds = userRepository.findStudentsAndTeachers().map(BaseUser::getId);
+            }
+
+            return userIds.collectList()
+                    .flatMap(ids -> notificationService.sendBulk(ids, title, text, "ADMIN")
+                            .map(sent -> {
+                                Map<String, Object> res = new HashMap<>();
+                                res.put("sent", sent);
+                                return ApiResponse.ok("Yuborildi", res);
+                            }));
+        }));
+    }
+
+    // ── To'lov tizimlari (enable/disable) ───────────────────────
+
+    @GetMapping("/payment-methods")
+    public Mono<ApiResponse<List<uz.sevenEdu.teacherBot.payment.entity.PaymentMethod>>> getPaymentMethods(Authentication auth) {
+        return requireAdmin(auth).then(
+            paymentMethodRepository.findAllByOrderByOrderIndexAsc().collectList().map(ApiResponse::ok)
+        );
+    }
+
+    @PatchMapping("/payment-methods/{id}/status")
+    public Mono<ApiResponse<uz.sevenEdu.teacherBot.payment.entity.PaymentMethod>> setPaymentMethodStatus(
+            Authentication auth, @PathVariable Long id, @RequestParam boolean enabled) {
+        return requireAdmin(auth).then(
+            paymentMethodRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("To'lov usuli topilmadi")))
+                .flatMap(pm -> {
+                    pm.setEnabled(enabled);
+                    return paymentMethodRepository.save(pm);
+                })
+                .map(ApiResponse::ok)
         );
     }
 
@@ -276,7 +491,19 @@ public class AdminController {
     @GetMapping("/courses")
     public Mono<ApiResponse<List<Course>>> getCourses(Authentication auth) {
         return requireAdmin(auth).then(
-            courseRepository.findAll().collectList().map(ApiResponse::ok)
+            courseRepository.findAll()
+                .flatMap(c -> Mono.zip(
+                        userCourseRepository.countByCourseId(c.getId()),
+                        lessonRepository.countByCourseId(c.getId())
+                ).map(t -> {
+                    c.setStudentCount(t.getT1());
+                    c.setLessonCount(t.getT2());
+                    return c;
+                }))
+                .sort((a, b) -> Integer.compare(
+                        a.getOrderIndex() != null ? a.getOrderIndex() : a.getId().intValue(),
+                        b.getOrderIndex() != null ? b.getOrderIndex() : b.getId().intValue()))
+                .collectList().map(ApiResponse::ok)
         );
     }
 
@@ -299,6 +526,10 @@ public class AdminController {
                     c.setIsPremium(body.getIsPremium());
                     c.setCoverImage(body.getCoverImage());
                     c.setImageId(body.getImageId());
+                    c.setPrice(body.getPrice());
+                    c.setPriceLabel(body.getPriceLabel());
+                    if (body.getBackgroundImage() != null) c.setBackgroundImage(body.getBackgroundImage());
+                    if (body.getOrderIndex() != null) c.setOrderIndex(body.getOrderIndex());
                     return courseRepository.save(c);
                 })
                 .map(ApiResponse::ok)
@@ -309,6 +540,57 @@ public class AdminController {
     public Mono<ApiResponse<Void>> deleteCourse(Authentication auth, @PathVariable Long id) {
         return requireAdmin(auth).then(
             courseRepository.deleteById(id).then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+        );
+    }
+
+    /** Kurs card (cover) rasmini yuklash. */
+    @PostMapping(value = "/courses/{id}/upload-cover", consumes = "multipart/form-data")
+    public Mono<ApiResponse<Course>> uploadCourseCover(Authentication auth, @PathVariable Long id,
+                                                       @RequestPart("file") FilePart file) {
+        return requireAdmin(auth).then(
+            courseRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("Kurs topilmadi")))
+                .flatMap(course -> fileStorageService.saveCourseCover(id, file, course.getCoverImage())
+                    .flatMap(path -> {
+                        course.setCoverImage(path);
+                        return courseRepository.save(course);
+                    }))
+                .map(ApiResponse::ok)
+        );
+    }
+
+    /** Kurs background rasmini yuklash. */
+    @PostMapping(value = "/courses/{id}/upload-background", consumes = "multipart/form-data")
+    public Mono<ApiResponse<Course>> uploadCourseBackground(Authentication auth, @PathVariable Long id,
+                                                            @RequestPart("file") FilePart file) {
+        return requireAdmin(auth).then(
+            courseRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("Kurs topilmadi")))
+                .flatMap(course -> fileStorageService.saveCourseBackground(id, file, course.getBackgroundImage())
+                    .flatMap(path -> {
+                        course.setBackgroundImage(path);
+                        return courseRepository.save(course);
+                    }))
+                .map(ApiResponse::ok)
+        );
+    }
+
+    /** Til sahifasi background rasmini yuklash. */
+    @PostMapping(value = "/languages/{id}/upload-background", consumes = "multipart/form-data")
+    public Mono<ApiResponse<Language>> uploadLanguageBackground(Authentication auth, @PathVariable Long id,
+                                                                @RequestPart("file") FilePart file) {
+        return requireAdmin(auth).then(
+            languageRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("Til topilmadi")))
+                .flatMap(lang -> fileStorageService.saveLanguageImage(
+                                lang.getName(), lang.getId(),
+                                uz.sevenEdu.teacherBot.common.enums.LanguageFileType.BACKGROUND,
+                                file, lang.getBackgroundImage())
+                    .flatMap(path -> {
+                        lang.setBackgroundImage(path);
+                        return languageRepository.save(lang);
+                    }))
+                .map(ApiResponse::ok)
         );
     }
 
@@ -384,6 +666,38 @@ public class AdminController {
                     l.setVideoUrl(body.getVideoUrl());
                     return lessonRepository.save(l);
                 })
+                .map(ApiResponse::ok)
+        );
+    }
+
+    /** Dars videosini yuklash (URL emas, fayl orqali). */
+    @PostMapping(value = "/lessons/{id}/upload-video", consumes = "multipart/form-data")
+    public Mono<ApiResponse<Lesson>> uploadLessonVideo(Authentication auth, @PathVariable Long id,
+                                                       @RequestPart("file") FilePart file) {
+        return requireAdmin(auth).then(
+            lessonRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("Dars topilmadi")))
+                .flatMap(lesson -> fileStorageService.saveLessonVideo(id, file, lesson.getVideoUrl())
+                    .flatMap(path -> {
+                        lesson.setVideoUrl(path);
+                        return lessonRepository.save(lesson);
+                    }))
+                .map(ApiResponse::ok)
+        );
+    }
+
+    /** Dars muqova (oboloshka) rasmini yuklash — ixtiyoriy. */
+    @PostMapping(value = "/lessons/{id}/upload-cover", consumes = "multipart/form-data")
+    public Mono<ApiResponse<Lesson>> uploadLessonCover(Authentication auth, @PathVariable Long id,
+                                                       @RequestPart("file") FilePart file) {
+        return requireAdmin(auth).then(
+            lessonRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("Dars topilmadi")))
+                .flatMap(lesson -> fileStorageService.saveLessonCover(id, file, lesson.getCoverImage())
+                    .flatMap(path -> {
+                        lesson.setCoverImage(path);
+                        return lessonRepository.save(lesson);
+                    }))
                 .map(ApiResponse::ok)
         );
     }
@@ -471,6 +785,46 @@ public class AdminController {
         );
     }
 
+    // ── Audio kitob CRUD ─────────────────────────────────────────
+
+    @GetMapping("/lessons/{lessonId}/audiobooks")
+    public Mono<ApiResponse<List<uz.sevenEdu.teacherBot.lesson.entity.Audiobook>>> getAudiobooks(
+            Authentication auth, @PathVariable Long lessonId) {
+        return requireAdmin(auth).then(
+            audiobookRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList().map(ApiResponse::ok)
+        );
+    }
+
+    /** Darsga audio kitob (audio fayl) qo'shish. */
+    @PostMapping(value = "/lessons/{lessonId}/audiobooks", consumes = "multipart/form-data")
+    public Mono<ApiResponse<uz.sevenEdu.teacherBot.lesson.entity.Audiobook>> uploadAudiobook(
+            Authentication auth, @PathVariable Long lessonId,
+            @RequestPart("file") FilePart file,
+            @RequestParam(required = false) String title) {
+        return requireAdmin(auth).then(
+            lessonRepository.findById(lessonId)
+                .switchIfEmpty(Mono.error(new RuntimeException("Dars topilmadi")))
+                .then(audiobookRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList())
+                .flatMap(existing -> fileStorageService.saveLessonAudiobook(lessonId, file)
+                    .flatMap(path -> audiobookRepository.save(
+                            uz.sevenEdu.teacherBot.lesson.entity.Audiobook.builder()
+                                    .lessonId(lessonId)
+                                    .title(title != null && !title.isBlank() ? title : file.filename())
+                                    .filePath(path)
+                                    .orderIndex(existing.size() + 1)
+                                    .createdAt(java.time.LocalDateTime.now())
+                                    .build())))
+                .map(ApiResponse::ok)
+        );
+    }
+
+    @DeleteMapping("/audiobooks/{id}")
+    public Mono<ApiResponse<Void>> deleteAudiobook(Authentication auth, @PathVariable Long id) {
+        return requireAdmin(auth).then(
+            audiobookRepository.deleteById(id).then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+        );
+    }
+
     // ── Books CRUD ───────────────────────────────────────────────
 
     @GetMapping("/books")
@@ -504,11 +858,8 @@ public class AdminController {
                     b.setCoverColor2(body.getCoverColor2());
                     b.setPages(body.getPages());
                     b.setPageCount(body.getPageCount());
-                    b.setFormat(body.getFormat());
-                    b.setRating(body.getRating());
-                    b.setReviewCount(body.getReviewCount());
+                    // format/daraja olib tashlandi; reyting qo'lda emas (baholar asosida)
                     b.setLanguage(body.getLanguage());
-                    b.setLevel(body.getLevel());
                     b.setPreviewPages(body.getPreviewPages());
                     b.setImageId(body.getImageId());
                     b.setFileId(body.getFileId());
@@ -556,9 +907,9 @@ public class AdminController {
         return requireAdmin(auth).then(
             booksRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("Kitob topilmadi")))
-                .flatMap(book -> fileStorageService.saveBookCover(id, file, null)
+                .flatMap(book -> fileStorageService.saveBookCover(id, file, book.getCoverImage())
                     .flatMap(path -> {
-                        // coverImage sifatida saqlash (public URL)
+                        book.setCoverImage(path); // yo'lni saqlaymiz (avval saqlanmas edi — bug)
                         book.setUpdatedAt(LocalDateTime.now());
                         return booksRepository.save(book);
                     })
@@ -663,38 +1014,6 @@ public class AdminController {
                     return Mono.empty();
                 });
     }
-
-    // ── Predefined Languages ──────────────────────────────────────────────────
-
-    private static final List<Map<String, String>> PREDEFINED_LANGUAGES = List.of(
-        Map.of("name","Ingliz tili",  "flagEmoji","🇬🇧", "colorStart","#4FC3F7", "colorEnd","#1565C0", "keywords","english,ingliz,british"),
-        Map.of("name","Ingliz tili (AQSh)", "flagEmoji","🇺🇸", "colorStart","#64B5F6", "colorEnd","#1E88E5", "keywords","american,amerikancha"),
-        Map.of("name","O'zbek tili",  "flagEmoji","🇺🇿", "colorStart","#66BB6A", "colorEnd","#1B5E20", "keywords","uzbek,o'zbek"),
-        Map.of("name","Rus tili",     "flagEmoji","🇷🇺", "colorStart","#EF5350", "colorEnd","#6A0000", "keywords","russian,ruscha,rus"),
-        Map.of("name","Nemis tili",   "flagEmoji","🇩🇪", "colorStart","#F2994A", "colorEnd","#6D4C41", "keywords","german,deutsch,nemis"),
-        Map.of("name","Koreys tili",  "flagEmoji","🇰🇷", "colorStart","#A770EF", "colorEnd","#4A148C", "keywords","korean,koreys"),
-        Map.of("name","Turk tili",    "flagEmoji","🇹🇷", "colorStart","#E44D26", "colorEnd","#6D0000", "keywords","turkish,turkcha,turk"),
-        Map.of("name","Arab tili",    "flagEmoji","🇸🇦", "colorStart","#26A69A", "colorEnd","#00695C", "keywords","arabic,arabcha,arab"),
-        Map.of("name","Fransuz tili", "flagEmoji","🇫🇷", "colorStart","#5C6BC0", "colorEnd","#1A237E", "keywords","french,fransuz"),
-        Map.of("name","Xitoy tili",   "flagEmoji","🇨🇳", "colorStart","#EF5350", "colorEnd","#7F0000", "keywords","chinese,xitoy,mandarin"),
-        Map.of("name","Ispan tili",   "flagEmoji","🇪🇸", "colorStart","#FF7043", "colorEnd","#BF360C", "keywords","spanish,ispan"),
-        Map.of("name","Italyan tili", "flagEmoji","🇮🇹", "colorStart","#388E3C", "colorEnd","#B71C1C", "keywords","italian,italyan"),
-        Map.of("name","Yapon tili",   "flagEmoji","🇯🇵", "colorStart","#EF5350", "colorEnd","#AD1457", "keywords","japanese,yapon"),
-        Map.of("name","Portugal tili","flagEmoji","🇵🇹", "colorStart","#388E3C", "colorEnd","#1B5E20", "keywords","portuguese,portugal"),
-        Map.of("name","Hind tili",    "flagEmoji","🇮🇳", "colorStart","#FF7043", "colorEnd","#6D4C41", "keywords","hindi,hindcha"),
-        Map.of("name","Fors tili",    "flagEmoji","🇮🇷", "colorStart","#388E3C", "colorEnd","#006064", "keywords","persian,farsi,forscha"),
-        Map.of("name","Tojik tili",   "flagEmoji","🇹🇯", "colorStart","#26C6DA", "colorEnd","#006064", "keywords","tajik,tojik"),
-        Map.of("name","Qozoq tili",   "flagEmoji","🇰🇿", "colorStart","#26A69A", "colorEnd","#004D40", "keywords","kazakh,qozoq"),
-        Map.of("name","Qirg'iz tili", "flagEmoji","🇰🇬", "colorStart","#EF5350", "colorEnd","#E65100", "keywords","kyrgyz,qirg'iz"),
-        Map.of("name","Ukraina tili", "flagEmoji","🇺🇦", "colorStart","#42A5F5", "colorEnd","#FDD835", "keywords","ukrainian,ukrain"),
-        Map.of("name","Polyak tili",  "flagEmoji","🇵🇱", "colorStart","#EF5350", "colorEnd","#6A0000", "keywords","polish,polyak"),
-        Map.of("name","Golland tili", "flagEmoji","🇳🇱", "colorStart","#1565C0", "colorEnd","#E53935", "keywords","dutch,golland"),
-        Map.of("name","Shved tili",   "flagEmoji","🇸🇪", "colorStart","#1565C0", "colorEnd","#E65100", "keywords","swedish,shved"),
-        Map.of("name","Turkman tili", "flagEmoji","🇹🇲", "colorStart","#388E3C", "colorEnd","#26A69A", "keywords","turkmen,turkman"),
-        Map.of("name","Ozarbayjon tili","flagEmoji","🇦🇿","colorStart","#26C6DA", "colorEnd","#1B5E20", "keywords","azerbaijani,ozarbayjon"),
-        Map.of("name","Gruzin tili",  "flagEmoji","🇬🇪", "colorStart","#EF5350", "colorEnd","#880E4F", "keywords","georgian,gruzin"),
-        Map.of("name","Arman tili",   "flagEmoji","🇦🇲", "colorStart","#EF5350", "colorEnd","#1565C0", "keywords","armenian,arman")
-    );
 
     /** Admin userni qaytaradi (requireAdmin + user ma'lumotlari) */
     private Mono<BaseUser> getAdminUser(Authentication auth) {

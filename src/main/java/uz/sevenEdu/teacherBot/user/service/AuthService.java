@@ -10,4 +10,5 @@ public interface AuthService {
     Mono<AuthResponse> googleAuth(GoogleAuthRequest request);
     Mono<Void> sendPhoneOtp(String phone, boolean isLogin);
     Mono<AuthResponse> phoneLogin(LoginRequest request);
+    Mono<AuthResponse> guestLogin();
 }
