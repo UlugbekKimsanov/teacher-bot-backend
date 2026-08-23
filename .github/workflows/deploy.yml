@@ -8,6 +8,7 @@ on:
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,29 +23,22 @@ jobs:
       - name: Build jar (testlarsiz)
         run: mvn -B -DskipTests clean package
 
-      - name: Copy jar to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "target/*.jar"
-          target: "/opt/teacher-bot/incoming"
-          strip_components: 1
-          overwrite: true
-
-      - name: Restart service
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            set -e
-            # target/*.jar ichida .jar.original bo'lishi mumkin — faqat asosiy jar
-            JAR=$(ls -S /opt/teacher-bot/incoming/*.jar | head -1)
-            mv "$JAR" /opt/teacher-bot/app.jar
-            rm -f /opt/teacher-bot/incoming/*.jar
-            systemctl restart teacher-bot
-            sleep 6
-            systemctl is-active teacher-bot
+      - name: Deploy over SSH
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          JAR=$(ls -S target/*.jar | head -1)
+          echo "Uploading $JAR ..."
+          scp -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+              -i ~/.ssh/id_ed25519 "$JAR" "$SSH_USER@$SSH_HOST:/opt/teacher-bot/app.jar"
+          echo "Restarting service ..."
+          ssh -o ConnectTimeout=20 -o ServerAliveInterval=15 -i ~/.ssh/id_ed25519 \
+              "$SSH_USER@$SSH_HOST" \
+              "systemctl restart teacher-bot && sleep 6 && systemctl is-active teacher-bot"
