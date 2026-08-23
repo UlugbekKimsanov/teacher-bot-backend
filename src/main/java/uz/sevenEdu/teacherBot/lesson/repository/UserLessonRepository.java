@@ -10,6 +10,9 @@ public interface UserLessonRepository extends ReactiveCrudRepository<UserLesson,
     Mono<UserLesson> findByUserIdAndLessonId(Long userId, Long lessonId);
     Flux<UserLesson> findByUserId(Long userId);
 
+    /** Bir nechta o'quvchi user_lesson'lari (teacher panel — findAll() o'rniga). */
+    Flux<UserLesson> findByUserIdIn(java.util.Collection<Long> userIds);
+
     @Query("SELECT ul.* FROM user_lessons ul " +
            "JOIN lessons l ON ul.lesson_id = l.id " +
            "WHERE ul.user_id = :userId AND l.course_id = :courseId")

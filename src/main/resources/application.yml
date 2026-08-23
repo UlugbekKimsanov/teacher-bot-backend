@@ -1,10 +1,25 @@
 spring:
   application:
     name: teacher-bot
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=2000,expireAfterWrite=10m
+  lifecycle:
+    timeout-per-shutdown-phase: 25s
   r2dbc:
     url: r2dbc:postgresql://localhost:5432/teacher_bot
     username: postgres
     password: 1
+    pool:
+      enabled: true
+      initial-size: 10
+      max-size: 50                    # har instans uchun; gorizontal scale (ko'p instans) bilan
+      max-acquire-time: 5s            # MUHIM: connection kutishni cheksiz qoldirmaydi
+      max-create-connection-time: 5s
+      max-idle-time: 30m
+      max-life-time: 30m
+      validation-query: SELECT 1
   flyway:
     url: jdbc:postgresql://localhost:5432/teacher_bot
     user: postgres
@@ -27,9 +42,22 @@ spring:
             enable: true
 server:
   port: 8080
+  shutdown: graceful            # rolling deploy — ochiq so'rovlar tugashini kutadi
+  netty:
+    connection-timeout: 5s
+    idle-timeout: 30s           # sekin/osilgan clientlar connection'ni ushlab turmasin
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true           # K8s liveness/readiness
 springdoc:
   swagger-ui:
-    path: /swagger-ui.html
+    path: /swagger-ui/index.html
     default-models-expand-depth: 0
     doc-expansion: list
   api-docs:
@@ -71,5 +99,6 @@ alif-nasiya:
   secret-key: ""
 
 telegram:
-  bot-token: ""
-  bot-username: ""
+  bot-token: ${TELEGRAM_BOT_TOKEN:}
+  bot-username: ${TELEGRAM_BOT_USERNAME:}
+  polling-enabled: ${TELEGRAM_BOT_POLLING_ENABLED:true}

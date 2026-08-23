@@ -126,7 +126,10 @@ public class LessonServiceImpl implements LessonService {
                                     .correctAnswer(e.getCorrectAnswer()).orderIndex(e.getOrderIndex()).build()).toList())
                             .audiobooks(tuple.getT6().stream().map(a -> LessonDetailDto.AudiobookDto.builder()
                                     .id(a.getId()).title(a.getTitle())
-                                    .url(fileStorageService.toPublicUrl(a.getFilePath())).build()).toList())
+                                    .description(a.getDescription())
+                                    .url(fileStorageService.toPublicUrl(a.getFilePath()))
+                                    .pdfUrl(fileStorageService.toPublicUrl(a.getPdfPath()))
+                                    .build()).toList())
                             .build();
                     });
                 });

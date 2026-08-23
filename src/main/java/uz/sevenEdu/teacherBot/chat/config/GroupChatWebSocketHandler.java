@@ -102,6 +102,25 @@ public class GroupChatWebSocketHandler implements WebSocketHandler {
                                       String senderRole, String senderName) {
         try {
             JsonNode node = objectMapper.readTree(payload);
+
+            String action = node.hasNonNull("action") ? node.get("action").asText() : null;
+            boolean isTeacher = "teacher".equalsIgnoreCase(senderRole);
+
+            if ("conference_start".equals(action)) {
+                if (!isTeacher) return Mono.empty();
+                String note = node.hasNonNull("note") ? node.get("note").asText() : null;
+                String scheduledAt = node.hasNonNull("scheduledAt") ? node.get("scheduledAt").asText() : null;
+                return chatService.startConference(courseId, senderId, senderName, note, scheduledAt)
+                        .doOnNext(saved -> broadcastToRoom(courseId, saved))
+                        .then();
+            }
+            if ("conference_end".equals(action)) {
+                if (!isTeacher) return Mono.empty();
+                return chatService.endConference(courseId, senderId, senderName)
+                        .doOnNext(saved -> broadcastToRoom(courseId, saved))
+                        .then();
+            }
+
             String text = node.has("text") ? node.get("text").asText() : "";
             String mediaPath = node.hasNonNull("mediaPath") ? node.get("mediaPath").asText() : null;
             String mediaType = node.hasNonNull("mediaType") ? node.get("mediaType").asText() : null;

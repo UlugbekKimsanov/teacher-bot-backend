@@ -25,7 +25,9 @@
       "Bash(flutter pub:*)",
       "Bash(ls C:UsersergasIdeaProjectsteacher-bot-backend/*.*)",
       "Bash(flutter analyze:*)",
-      "Bash(find C:/Users/ergas/IdeaProjects/teacher-bot-backend/src -name *.java -path *language* -o -name *.java -path *Language*)"
+      "Bash(find C:/Users/ergas/IdeaProjects/teacher-bot-backend/src -name *.java -path *language* -o -name *.java -path *Language*)",
+      "PowerShell(psql *)",
+      "PowerShell(Rename-Item *)"
     ]
   }
 }

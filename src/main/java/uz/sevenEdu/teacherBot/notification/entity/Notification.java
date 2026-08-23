@@ -23,5 +23,6 @@ public class Notification {
     private String type;
     private Long refId;
     private Boolean isRead;
+    private String image; // optional — admin biriktirgan rasm (to'liq URL)
     private LocalDateTime createdAt;
 }

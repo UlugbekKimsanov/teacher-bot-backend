@@ -77,4 +77,36 @@ public class RatingDto {
         private int wordsGoal;
         private int wordsDone;
     }
+
+    /** Maqsadlar tarixidagi bir kun. */
+    @Data @Builder
+    public static class DailyGoalRow {
+        private String date; // ISO (yyyy-MM-dd)
+        private int minutesDone;
+        private int wordsDone;
+        private int minutesGoal;
+        private int wordsGoal;
+        private double percent; // o'sha kungi maqsadga nisbatan (0..100)
+    }
+
+    /** Maqsadlar tarixi sahifasi uchun. */
+    @Data @Builder
+    public static class GoalsHistoryDto {
+        private double averagePercent;   // har kungi o'z foizining o'rta arifmetigi
+        private DailyGoalsDto today;     // bugungi (jonli) maqsad
+        private List<DailyGoalRow> days; // kunlar (bugun + tarix), sana bo'yicha kamayuvchi
+    }
+
+    /** Maqsadni o'zgartirish so'rovi. */
+    @Data
+    public static class UpdateGoalsRequest {
+        private int minutesGoal;
+        private int wordsGoal;
+    }
+
+    /** Faollik (sarflangan vaqt) so'rovi. */
+    @Data
+    public static class ActivityRequest {
+        private int seconds;
+    }
 }

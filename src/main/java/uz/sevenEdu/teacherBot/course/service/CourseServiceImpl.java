@@ -18,7 +18,10 @@ import uz.sevenEdu.teacherBot.lesson.entity.Lesson;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -33,20 +36,39 @@ public class CourseServiceImpl implements CourseService {
     private final uz.sevenEdu.teacherBot.lesson.repository.UserLessonRepository userLessonRepository;
     private final uz.sevenEdu.teacherBot.common.service.FileStorageService fileStorageService;
 
+    // Til xaritasi (id -> nom) — statik, har kurs-ro'yxat so'rovida DB urilmasligi uchun
+    // 10 daqiqaga keshlanadi (Reactor cache, reaktiv-xavfsiz).
+    private volatile Mono<Map<Long, String>> langCache;
+
+    private Mono<Map<Long, String>> languageMap() {
+        Mono<Map<Long, String>> c = langCache;
+        if (c == null) {
+            c = languageRepository.findAll()
+                    .collectMap(l -> l.getId(), l -> l.getName() != null ? l.getName() : "")
+                    .cache(java.time.Duration.ofMinutes(10));
+            langCache = c;
+        }
+        return c;
+    }
+
     @Override
     public Flux<CourseDto> getAllCourses(Long userId) {
-        return courseRepository.findAll().flatMap(course -> enrichCourse(course, userId));
+        return courseRepository.findAll().collectList()
+                .flatMapMany(courses -> enrichCoursesBatch(courses, userId));
     }
 
     @Override
     public Flux<CourseDto> getCoursesByCategory(String category, Long userId) {
         return languageRepository.findByName(category)
                 .flatMapMany(lang -> courseRepository.findByLanguageId(lang.getId()))
-                // Admin sozlagan tartib (order_index), yo'q bo'lsa yaratilish tartibi (id)
-                .sort((a, b) -> Integer.compare(
-                        a.getOrderIndex() != null ? a.getOrderIndex() : a.getId().intValue(),
-                        b.getOrderIndex() != null ? b.getOrderIndex() : b.getId().intValue()))
-                .concatMap(course -> enrichCourse(course, userId));
+                .collectList()
+                .flatMapMany(courses -> {
+                    // Admin sozlagan tartib (order_index), yo'q bo'lsa yaratilish tartibi (id)
+                    courses.sort((a, b) -> Integer.compare(
+                            a.getOrderIndex() != null ? a.getOrderIndex() : a.getId().intValue(),
+                            b.getOrderIndex() != null ? b.getOrderIndex() : b.getId().intValue()));
+                    return enrichCoursesBatch(courses, userId);
+                });
     }
 
     @Override
@@ -124,6 +146,63 @@ public class CourseServiceImpl implements CourseService {
                             .findFirst().orElse(null);
 
                     return toDto(course, category, enrolled, progress, completed, lessonCount, hours, cl);
+                });
+    }
+
+    /** Kurslar ro'yxati uchun batch boyitish — N+1 (har kurs × 5 so'rov) o'rniga
+     *  butun ro'yxat uchun ~4 so'rov: til xaritasi, enrollment to'plami,
+     *  tugatilgan darslar to'plami, barcha darslar (IN). */
+    private Flux<CourseDto> enrichCoursesBatch(List<Course> courses, Long userId) {
+        if (courses.isEmpty()) return Flux.empty();
+        List<Long> courseIds = courses.stream().map(Course::getId).collect(Collectors.toList());
+
+        Mono<Map<Long, String>> langMapMono = languageMap();
+
+        Mono<Set<Long>> enrolledMono = userId != null
+                ? userCourseRepository.findByUserId(userId)
+                        .map(UserCourse::getCourseId).collect(Collectors.toSet())
+                : Mono.just(Set.of());
+
+        Mono<Set<Long>> completedMono = userId != null
+                ? userLessonRepository.findByUserId(userId)
+                        .filter(ul -> Boolean.TRUE.equals(ul.getIsCompleted()))
+                        .map(ul -> ul.getLessonId()).collect(Collectors.toSet())
+                : Mono.just(Set.of());
+
+        Mono<Map<Long, Collection<Lesson>>> lessonsMono = lessonRepository
+                .findByCourseIdInOrdered(courseIds)
+                .collectMultimap(Lesson::getCourseId);
+
+        return Mono.zip(langMapMono, enrolledMono, completedMono, lessonsMono)
+                .flatMapMany(t -> {
+                    Map<Long, String> langs = t.getT1();
+                    Set<Long> enrolled = t.getT2();
+                    Set<Long> completedIds = t.getT3();
+                    Map<Long, Collection<Lesson>> lessonsByCourse = t.getT4();
+                    List<CourseDto> dtos = new ArrayList<>(courses.size());
+                    for (Course course : courses) {
+                        String category = course.getLanguageId() != null
+                                ? langs.getOrDefault(course.getLanguageId(), "") : "";
+                        List<Lesson> lessons = new ArrayList<>(
+                                lessonsByCourse.getOrDefault(course.getId(), List.of()));
+                        long totalSecs = lessons.stream()
+                                .mapToLong(l -> l.getDurationSec() != null ? l.getDurationSec() : 0L).sum();
+                        int hours = totalSecs > 0 ? (int) Math.ceil(totalSecs / 3600.0) : 0;
+                        boolean isEnrolled = enrolled.contains(course.getId());
+                        int lessonCount = lessons.size();
+                        int completed = (int) lessons.stream()
+                                .filter(l -> completedIds.contains(l.getId())).count();
+                        BigDecimal progress = lessonCount > 0
+                                ? BigDecimal.valueOf(completed).divide(
+                                        BigDecimal.valueOf(lessonCount), 4, RoundingMode.HALF_UP)
+                                : BigDecimal.ZERO;
+                        Lesson cl = lessons.stream()
+                                .filter(l -> !completedIds.contains(l.getId()))
+                                .findFirst().orElse(null);
+                        dtos.add(toDto(course, category, isEnrolled, progress, completed,
+                                lessonCount, hours, cl));
+                    }
+                    return Flux.fromIterable(dtos);
                 });
     }
 

@@ -25,6 +25,8 @@ public class BooksDto {
     private Integer reviewCount;
     private Integer myRating;        // joriy foydalanuvchi qo'ygan baho (0 = qo'ymagan)
     private String language;
+    private String deliveryType;     // FREE | NEGOTIABLE | PAID (bosma kitoblar uchun)
+    private Integer deliveryPrice;   // PAID bo'lsa — yetkazib berish narxi (so'm)
     private List<String> previewPages;
     private Boolean isPurchased;
     private Boolean inLibrary;

@@ -205,6 +205,15 @@ public class FileStorageService {
         return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
     }
 
+    /** Audio kitob PDF faylini saqlash. Path: lessons/{lessonId}/audiopdf_{uid}.{ext} */
+    public Mono<String> saveLessonAudiobookPdf(Long lessonId, FilePart filePart) {
+        String ext = getExtension(filePart.filename());
+        String uid = UUID.randomUUID().toString().substring(0, 8);
+        String fileName = "audiopdf_" + lessonId + "_" + uid + ext;
+        Path dest = basePath.resolve("lessons").resolve(String.valueOf(lessonId)).resolve(fileName);
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
     /** Dars muqova (oboloshka) rasmini saqlash. Path: lessons/{lessonId}/cover_{uid}.{ext} */
     public Mono<String> saveLessonCover(Long lessonId, FilePart filePart, String oldPath) {
         deleteIfExists(oldPath);
@@ -212,6 +221,15 @@ public class FileStorageService {
         String uid = UUID.randomUUID().toString().substring(0, 8);
         String fileName = "cover_" + lessonId + "_" + uid + ext;
         Path dest = basePath.resolve("lessons").resolve(String.valueOf(lessonId)).resolve(fileName);
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
+    /** Admin bildirishnoma rasmini saqlash. Path: notifications/{uid}.{ext} */
+    public Mono<String> saveNotificationImage(FilePart filePart) {
+        String ext = getExtension(filePart.filename());
+        String uid = UUID.randomUUID().toString().substring(0, 12);
+        String fileName = "notif_" + uid + ext;
+        Path dest = basePath.resolve("notifications").resolve(fileName);
         return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
     }
 
@@ -289,8 +307,10 @@ public class FileStorageService {
     }
 
     private Mono<Void> saveFile(FilePart filePart, Path dest) {
-        createDirectories(dest.getParent());
-        return filePart.transferTo(dest);
+        // Bloklovchi papka yaratishni event-loop'dan boundedElastic'ga ko'chiramiz.
+        return Mono.fromRunnable(() -> createDirectories(dest.getParent()))
+                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                .then(filePart.transferTo(dest));
     }
 
     private void createDirectories(Path dir) {

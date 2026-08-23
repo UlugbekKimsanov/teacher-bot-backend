@@ -24,6 +24,10 @@ public class EskizSmsService {
         this.password = password;
         this.webClient = WebClient.builder()
                 .baseUrl("https://notify.eskiz.uz/api")
+                // Tashqi xizmat osilib qolsa zanjir bloklanmasligi uchun timeout.
+                .clientConnector(new org.springframework.http.client.reactive.ReactorClientHttpConnector(
+                        reactor.netty.http.client.HttpClient.create()
+                                .responseTimeout(java.time.Duration.ofSeconds(10))))
                 .build();
     }
 

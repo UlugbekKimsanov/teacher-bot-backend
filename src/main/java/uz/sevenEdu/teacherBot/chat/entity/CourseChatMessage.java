@@ -21,5 +21,10 @@ public class CourseChatMessage {
     private String text;
     private String mediaPath;  // yuklangan media yo'li
     private String mediaType;  // "image" or "file"
+    private String messageType; // "message" or "conference"
+    private Boolean pinned;
+    private String conferenceUrl;
+    private Boolean conferenceActive;
+    private LocalDateTime conferenceStartAt;
     private LocalDateTime createdAt;
 }

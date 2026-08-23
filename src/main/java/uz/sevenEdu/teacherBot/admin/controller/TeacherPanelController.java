@@ -57,7 +57,7 @@ public class TeacherPanelController {
                     return Mono.zip(
                             Mono.just(courseIds.size()),
                             userCourseRepository.findByCourseIdIn(courseIds).map(UserCourse::getUserId).distinct().count(),
-                            lessonRepository.findAll().filter(l -> courseIds.contains(l.getCourseId())).map(l -> l.getId()).collectList()
+                            lessonRepository.findByCourseIdInOrdered(courseIds).map(l -> l.getId()).collectList()
                                     .flatMap(lessonIds -> lessonIds.isEmpty()
                                             ? Mono.just(0L)
                                             : teacherQuestionRepository.findByLessonIdIn(lessonIds).count())
@@ -95,7 +95,7 @@ public class TeacherPanelController {
                     if (courseIds.isEmpty()) return Mono.just(ApiResponse.ok(Collections.<Map<String, Object>>emptyList()));
 
                     return Mono.zip(
-                            courseRepository.findAll().filter(c -> courseIds.contains(c.getId())).collectList(),
+                            courseRepository.findAllById(courseIds).collectList(),
                             userCourseRepository.findByCourseIdIn(courseIds).collectList()
                     ).flatMap(t -> {
                         List<Course> courses = t.getT1();
@@ -105,8 +105,8 @@ public class TeacherPanelController {
                         return userRepository.findAllById(studentIds).collectList()
                                 .flatMap(students -> {
                                     // Count total lessons per course
-                                    return lessonRepository.findAll().filter(l -> courseIds.contains(l.getCourseId())).collectList()
-                                            .flatMap(lessons -> userLessonRepository.findAll().collectList()
+                                    return lessonRepository.findByCourseIdInOrdered(courseIds).collectList()
+                                            .flatMap(lessons -> userLessonRepository.findByUserIdIn(studentIds.isEmpty() ? java.util.Collections.singleton(-1L) : studentIds).collectList()
                                                     .map(userLessons -> {
                                                         List<Map<String, Object>> result = new ArrayList<>();
                                                         for (UserCourse uc : userCourses) {
@@ -151,7 +151,7 @@ public class TeacherPanelController {
                     List<Long> courseIds = courseTeachers.stream().map(ct -> ct.getCourseId()).collect(Collectors.toList());
                     if (courseIds.isEmpty()) return Mono.just(ApiResponse.ok(Collections.<Map<String, Object>>emptyList()));
 
-                    return lessonRepository.findAll().filter(l -> courseIds.contains(l.getCourseId())).collectList()
+                    return lessonRepository.findByCourseIdInOrdered(courseIds).collectList()
                             .flatMap(lessons -> {
                                 List<Long> lessonIds = lessons.stream().map(l -> l.getId()).collect(Collectors.toList());
                                 if (lessonIds.isEmpty()) return Mono.just(ApiResponse.ok(Collections.<Map<String, Object>>emptyList()));
@@ -194,7 +194,7 @@ public class TeacherPanelController {
                     if (courseIds.isEmpty()) return Mono.just(ApiResponse.ok(Collections.<Map<String, Object>>emptyList()));
 
                     return Mono.zip(
-                            courseRepository.findAll().filter(c -> courseIds.contains(c.getId())).collectList(),
+                            courseRepository.findAllById(courseIds).collectList(),
                             userCourseRepository.findByCourseIdIn(courseIds).collectList()
                     ).flatMap(t -> {
                         List<Course> courses = t.getT1();
@@ -232,7 +232,7 @@ public class TeacherPanelController {
     // ── Helper ──────────────────────────────────────────────────
 
     private Long requireTeacher(Authentication auth) {
-        if (auth == null) throw new RuntimeException("Unauthorized");
+        if (auth == null) throw new uz.sevenEdu.teacherBot.common.exception.UnauthorizedException("Avtorizatsiya talab qilinadi");
         return (Long) auth.getPrincipal();
     }
 }

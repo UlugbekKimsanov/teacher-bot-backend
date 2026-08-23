@@ -56,6 +56,7 @@ public class UserController {
                     Files.createDirectories(dir);
                     return dir.resolve(fileName);
                 })
+                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
                 .flatMap(path -> file.transferTo(path).thenReturn(path))
                 .map(path -> "avatars/" + fileName)
                 .flatMap(relativePath -> userRepository.findById(userId)

@@ -20,8 +20,9 @@ public interface AttendanceRepository extends ReactiveCrudRepository<Attendance,
     @Query("SELECT COUNT(*) FROM attendance WHERE user_id = :userId AND course_id = :courseId AND attended_at >= CURRENT_DATE - INTERVAL '120 days'")
     Mono<Long> countQuarterly(Long userId, Long courseId);
 
-    /** Distinct attended dates for a user across all courses, ordered DESC */
-    @Query("SELECT DISTINCT attended_at FROM attendance WHERE user_id = :userId ORDER BY attended_at DESC")
+    /** Distinct attended dates for a user, ordered DESC. Streak hisobi uchun
+     *  oxirgi 400 kun yetarli (cheksiz o'sishni oldini olamiz). */
+    @Query("SELECT DISTINCT attended_at FROM attendance WHERE user_id = :userId ORDER BY attended_at DESC LIMIT 400")
     Flux<LocalDate> findDistinctDatesByUserId(Long userId);
 
     /** Record attendance for today (idempotent) */

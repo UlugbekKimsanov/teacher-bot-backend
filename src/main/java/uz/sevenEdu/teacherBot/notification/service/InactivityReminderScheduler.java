@@ -45,7 +45,9 @@ public class InactivityReminderScheduler {
         userRepository.findByRole("STUDENT")
                 // faqat kamida bitta kursga yozilgan o'quvchilar
                 .filterWhen(u -> userCourseRepository.findByUserId(u.getId()).hasElements())
-                .flatMap(this::processStudent)
+                // concurrency cheklash — 100K user'da DB pool va FCM'ni bir vaqtda bosib
+                // qo'ymaslik uchun (backpressure butun zanjirni cheklaydi).
+                .flatMap(this::processStudent, 16)
                 .doOnError(e -> log.error("Inactivity reminder xatosi", e))
                 .subscribe();
     }

@@ -29,8 +29,8 @@ public interface UserRepository extends ReactiveCrudRepository<BaseUser, Long> {
     @Query("UPDATE users SET last_active_at = now() WHERE id = :id AND (last_active_at IS NULL OR last_active_at < CURRENT_DATE)")
     Mono<Integer> touchLastActive(Long id);
 
-    /** Dashboard "so'nggi faoliyat" uchun — eng oxirgi ro'yxatdan o'tganlar */
-    @Query("SELECT * FROM users WHERE role = :role ORDER BY created_at DESC NULLS LAST LIMIT 6")
+    /** Dashboard "so'nggi faoliyat" uchun — eng oxirgi ro'yxatdan o'tganlar (mehmonsiz) */
+    @Query("SELECT * FROM users WHERE role = :role AND (is_guest IS NULL OR is_guest = false) ORDER BY created_at DESC NULLS LAST LIMIT 6")
     Flux<BaseUser> findRecentByRole(String role);
 
     /** isDefault=false admin uchun: faqat TEACHER va STUDENT */

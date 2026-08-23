@@ -32,6 +32,12 @@ public class CheckoutService {
                 .switchIfEmpty(Mono.error(new RuntimeException("Kitob topilmadi")))
                 .map(book -> {
                     int priceSum = book.getPrice() != null ? book.getPrice() : 0;
+                    // Bosma kitob + pullik yetkazib berish — umumiy to'lov summasiga qo'shamiz
+                    if ("print".equalsIgnoreCase(book.getCategory())
+                            && "PAID".equalsIgnoreCase(book.getDeliveryType())
+                            && book.getDeliveryPrice() != null) {
+                        priceSum += book.getDeliveryPrice();
+                    }
                     long priceTiyin = priceSum * 100L;
 
                     String checkoutUrl = switch (paymentMethod.toLowerCase()) {

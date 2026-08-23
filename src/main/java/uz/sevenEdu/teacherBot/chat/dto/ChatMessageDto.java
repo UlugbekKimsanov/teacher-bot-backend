@@ -21,4 +21,9 @@ public class ChatMessageDto {
     private String mediaType;  // "image" or "file"
     private String createdAt;
     private String type; // "message", "history", "error"
+    private String messageType; // "message" or "conference"
+    private Boolean pinned;
+    private String conferenceUrl;
+    private Boolean conferenceActive;
+    private String conferenceStartAt;
 }

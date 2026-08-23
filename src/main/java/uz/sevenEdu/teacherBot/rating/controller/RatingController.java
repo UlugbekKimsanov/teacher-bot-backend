@@ -90,4 +90,34 @@ public class RatingController {
                 .lessonsGoal(3).lessonsDone(0).minutesGoal(30).minutesDone(0).wordsGoal(20).wordsDone(0).build()));
         return ratingService.getDailyGoals(userId).map(ApiResponse::ok);
     }
+
+    @PutMapping("/daily-goals")
+    public Mono<ApiResponse<RatingDto.DailyGoalsDto>> updateDailyGoals(
+            @RequestBody RatingDto.UpdateGoalsRequest req, Authentication auth) {
+        Long userId = getUserId(auth);
+        if (userId == null) return Mono.just(ApiResponse.ok(RatingDto.DailyGoalsDto.builder()
+                .lessonsGoal(3).lessonsDone(0).minutesGoal(30).minutesDone(0).wordsGoal(20).wordsDone(0).build()));
+        return ratingService.updateGoals(userId, req.getMinutesGoal(), req.getWordsGoal())
+                .map(ApiResponse::ok);
+    }
+
+    @PostMapping("/activity")
+    public Mono<ApiResponse<String>> recordActivity(
+            @RequestBody RatingDto.ActivityRequest req, Authentication auth) {
+        Long userId = getUserId(auth);
+        if (userId == null) return Mono.just(ApiResponse.ok("skipped"));
+        return ratingService.recordActivity(userId, req.getSeconds()).thenReturn(ApiResponse.ok("ok"));
+    }
+
+    @GetMapping("/goals-history")
+    public Mono<ApiResponse<RatingDto.GoalsHistoryDto>> getGoalsHistory(Authentication auth) {
+        Long userId = getUserId(auth);
+        if (userId == null) return Mono.just(ApiResponse.ok(RatingDto.GoalsHistoryDto.builder()
+                .averagePercent(0)
+                .today(RatingDto.DailyGoalsDto.builder()
+                        .lessonsGoal(3).lessonsDone(0).minutesGoal(30).minutesDone(0).wordsGoal(20).wordsDone(0).build())
+                .days(java.util.List.of())
+                .build()));
+        return ratingService.getGoalsHistory(userId).map(ApiResponse::ok);
+    }
 }

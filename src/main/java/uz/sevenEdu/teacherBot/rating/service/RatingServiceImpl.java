@@ -32,6 +32,9 @@ public class RatingServiceImpl implements RatingService {
     private final UserCourseRepository userCourseRepository;
     private final UserRepository userRepository;
     private final uz.sevenEdu.teacherBot.lesson.repository.VocabularyRepository vocabularyRepository;
+    private final uz.sevenEdu.teacherBot.rating.repository.UserGoalSettingsRepository goalSettingsRepository;
+    private final uz.sevenEdu.teacherBot.rating.repository.DailyActivityRepository dailyActivityRepository;
+    private final uz.sevenEdu.teacherBot.rating.repository.DailyGoalHistoryRepository goalHistoryRepository;
 
     @Override
     public Mono<RatingDto.AttendanceDto> getAttendance(Long userId, Long courseId) {
@@ -53,7 +56,7 @@ public class RatingServiceImpl implements RatingService {
     @Override
     public Mono<RatingDto.PointsSummary> getPoints(Long userId) {
         Mono<java.util.List<RatingDto.PointsSummary.PointEntry>> entriesMono =
-                pointsRepository.findByUserIdOrderByCreatedAtDesc(userId)
+                pointsRepository.findTop100ByUserIdOrderByCreatedAtDesc(userId)
                         .map(p -> RatingDto.PointsSummary.PointEntry.builder()
                                 .activity(p.getActivity()).amount(p.getAmount()).build())
                         .collectList();
@@ -182,72 +185,142 @@ public class RatingServiceImpl implements RatingService {
 
     @Override
     public Mono<RatingDto.LeaderboardDto> getLeaderboard(Long currentUserId) {
-        return userRepository.findByRole("STUDENT")
-                .filter(user -> !Boolean.TRUE.equals(user.getIsGuest()))
-                .flatMap(user -> pointsRepository.sumByUserId(user.getId())
-                        .map(total -> Map.entry(user, total.intValue())))
-                .collectSortedList((a, b) -> Integer.compare(b.getValue(), a.getValue()))
-                .map(sorted -> {
+        // N+1 o'rniga bitta GROUP BY agregat so'rov (top-50).
+        return pointsRepository.findTop50Leaderboard().collectList()
+                .flatMap(rows -> {
                     List<RatingDto.LeaderboardDto.LeaderboardEntry> entries = new ArrayList<>();
                     int myRank = 0;
-                    for (int i = 0; i < sorted.size() && i < 50; i++) {
-                        var entry = sorted.get(i);
-                        BaseUser u = entry.getKey();
-                        boolean isMe = u.getId().equals(currentUserId);
+                    for (int i = 0; i < rows.size(); i++) {
+                        var r = rows.get(i);
+                        boolean isMe = r.getId() != null && r.getId().equals(currentUserId);
                         if (isMe) myRank = i + 1;
-                        String initials = ((u.getFirstName() != null ? u.getFirstName().substring(0, 1) : "") +
-                                (u.getLastName() != null ? u.getLastName().substring(0, 1) : "")).toUpperCase();
+                        String fn = r.getFirstName() != null ? r.getFirstName() : "";
+                        String ln = r.getLastName() != null ? r.getLastName() : "";
+                        String initials = ((fn.isEmpty() ? "" : fn.substring(0, 1)) +
+                                (ln.isEmpty() ? "" : ln.substring(0, 1))).toUpperCase();
                         entries.add(RatingDto.LeaderboardDto.LeaderboardEntry.builder()
                                 .rank(i + 1)
-                                .name((u.getFirstName() != null ? u.getFirstName() : "") + " " +
-                                      (u.getLastName() != null ? u.getLastName() : ""))
-                                .points(entry.getValue())
+                                .name((fn + " " + ln).trim())
+                                .points(r.getTotal() != null ? r.getTotal().intValue() : 0)
                                 .isMe(isMe)
                                 .avatarInitials(initials)
                                 .build());
                     }
-                    // If user not in top 50, find their rank
-                    if (myRank == 0) {
-                        for (int i = 0; i < sorted.size(); i++) {
-                            if (sorted.get(i).getKey().getId().equals(currentUserId)) {
-                                myRank = i + 1;
-                                break;
-                            }
-                        }
+                    if (myRank > 0) {
+                        return Mono.just(RatingDto.LeaderboardDto.builder()
+                                .entries(entries).myRank(myRank).build());
                     }
-                    return RatingDto.LeaderboardDto.builder()
-                            .entries(entries)
-                            .myRank(myRank)
-                            .build();
+                    // Top-50 dan tashqarida — rankni alohida (2 ta yengil so'rov) hisoblaymiz.
+                    return pointsRepository.sumByUserId(currentUserId).defaultIfEmpty(0L)
+                            .flatMap(myTotal -> pointsRepository.countRankedAbove(myTotal)
+                                    .map(above -> RatingDto.LeaderboardDto.builder()
+                                            .entries(entries)
+                                            .myRank(above.intValue() + 1)
+                                            .build()));
                 });
     }
 
     @Override
     public Mono<RatingDto.DailyGoalsDto> getDailyGoals(Long userId) {
+        return buildTodayGoals(userId);
+    }
+
+    /** Bugungi jonli maqsad: daqiqa daily_activity'dan (sekund/60), so'z vocab'dan,
+     *  maqsadlar user_goal_settings'dan (yo'q bo'lsa 30/20). */
+    private Mono<RatingDto.DailyGoalsDto> buildTodayGoals(Long userId) {
         Mono<Long> lessonsDone = userLessonRepository.findByUserId(userId)
                 .filter(ul -> Boolean.TRUE.equals(ul.getIsCompleted()) &&
                         ul.getCompletedAt() != null &&
                         ul.getCompletedAt().toLocalDate().equals(LocalDate.now()))
                 .count();
-
-        Mono<Long> todayPoints = pointsRepository.sumTodayByUserId(userId);
-
-        // Bugun yakunlangan darslardagi haqiqiy so'zlar soni
+        Mono<Integer> todaySeconds = dailyActivityRepository.todaySeconds(userId).defaultIfEmpty(0);
         Mono<Long> todayWords = vocabularyRepository.countTodayLearnedByUserId(userId);
+        Mono<int[]> goalsMono = goalSettingsRepository.findById(userId)
+                .map(s -> new int[]{
+                        s.getMinutesGoal() != null ? s.getMinutesGoal() : 30,
+                        s.getWordsGoal() != null ? s.getWordsGoal() : 20})
+                .defaultIfEmpty(new int[]{30, 20});
 
-        return Mono.zip(lessonsDone, todayPoints, todayWords)
-                .map(tuple -> {
-                    int lessons = tuple.getT1().intValue();
-                    int points = tuple.getT2().intValue();
-                    int words = tuple.getT3().intValue();
+        return Mono.zip(lessonsDone, todaySeconds, todayWords, goalsMono)
+                .map(t -> {
+                    int lessons = t.getT1().intValue();
+                    int minutes = t.getT2() / 60;
+                    int words = t.getT3().intValue();
+                    int[] g = t.getT4();
                     return RatingDto.DailyGoalsDto.builder()
                             .lessonsGoal(3)
                             .lessonsDone(lessons)
-                            .minutesGoal(30)
-                            .minutesDone(lessons * 6) // ~6 min per lesson (vaqt kuzatuvi yo'q)
-                            .wordsGoal(20)
-                            .wordsDone(words) // haqiqiy so'z soni
+                            .minutesGoal(g[0])
+                            .minutesDone(minutes)
+                            .wordsGoal(g[1])
+                            .wordsDone(words)
                             .build();
                 });
+    }
+
+    /** Foiz (0..100): daqiqa% va so'z% ning o'rta arifmetigi. */
+    private static double goalPercent(int minutesDone, int minutesGoal, int wordsDone, int wordsGoal) {
+        double mp = minutesGoal > 0 ? Math.min(1.0, (double) minutesDone / minutesGoal) : 0;
+        double wp = wordsGoal > 0 ? Math.min(1.0, (double) wordsDone / wordsGoal) : 0;
+        return Math.round(((mp + wp) / 2.0) * 100.0);
+    }
+
+    @Override
+    public Mono<Void> recordActivity(Long userId, int seconds) {
+        if (seconds <= 0) return Mono.empty();
+        if (uz.sevenEdu.teacherBot.common.util.GuestUtil.isGuest(userId)) return Mono.empty();
+        return dailyActivityRepository.addSecondsToday(userId, seconds).then();
+    }
+
+    @Override
+    public Mono<RatingDto.DailyGoalsDto> updateGoals(Long userId, int minutesGoal, int wordsGoal) {
+        int mg = minutesGoal > 0 ? minutesGoal : 30;
+        int wg = wordsGoal > 0 ? wordsGoal : 20;
+        return goalSettingsRepository.upsert(userId, mg, wg).then(buildTodayGoals(userId));
+    }
+
+    @Override
+    public Mono<RatingDto.GoalsHistoryDto> getGoalsHistory(Long userId) {
+        Mono<RatingDto.DailyGoalsDto> todayMono = buildTodayGoals(userId);
+        Mono<List<RatingDto.DailyGoalRow>> historyMono = goalHistoryRepository.findRecentByUserId(userId)
+                // bugungi kun cron yozgan bo'lsa ham — uni jonlisi bilan almashtiramiz
+                .filter(h -> h.getHistoryDate() == null || !h.getHistoryDate().equals(LocalDate.now()))
+                .map(h -> RatingDto.DailyGoalRow.builder()
+                        .date(h.getHistoryDate() != null ? h.getHistoryDate().toString() : "")
+                        .minutesDone(h.getMinutesDone() != null ? h.getMinutesDone() : 0)
+                        .wordsDone(h.getWordsDone() != null ? h.getWordsDone() : 0)
+                        .minutesGoal(h.getMinutesGoal() != null ? h.getMinutesGoal() : 0)
+                        .wordsGoal(h.getWordsGoal() != null ? h.getWordsGoal() : 0)
+                        .percent(h.getPercent() != null ? h.getPercent() : 0)
+                        .build())
+                .collectList();
+        return Mono.zip(todayMono, historyMono).map(t -> {
+            RatingDto.DailyGoalsDto today = t.getT1();
+            List<RatingDto.DailyGoalRow> rows = new ArrayList<>();
+            double todayPercent = goalPercent(today.getMinutesDone(), today.getMinutesGoal(),
+                    today.getWordsDone(), today.getWordsGoal());
+            rows.add(RatingDto.DailyGoalRow.builder()
+                    .date(LocalDate.now().toString())
+                    .minutesDone(today.getMinutesDone())
+                    .wordsDone(today.getWordsDone())
+                    .minutesGoal(today.getMinutesGoal())
+                    .wordsGoal(today.getWordsGoal())
+                    .percent(todayPercent)
+                    .build());
+            rows.addAll(t.getT2()); // tarix (bugundan tashqari), sana bo'yicha kamayuvchi
+            double avg = rows.isEmpty() ? 0
+                    : Math.round(rows.stream().mapToDouble(RatingDto.DailyGoalRow::getPercent).average().orElse(0));
+            return RatingDto.GoalsHistoryDto.builder()
+                    .averagePercent(avg)
+                    .today(today)
+                    .days(rows)
+                    .build();
+        });
+    }
+
+    @Override
+    public Mono<Void> snapshotAllDailyGoals() {
+        // Set-based: barcha real o'quvchilar uchun bitta SQL (~500K so'rov o'rniga 1).
+        return goalHistoryRepository.snapshotAllToday().then();
     }
 }

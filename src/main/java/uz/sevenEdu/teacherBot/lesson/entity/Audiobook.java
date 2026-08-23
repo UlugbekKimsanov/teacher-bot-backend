@@ -20,7 +20,9 @@ public class Audiobook {
     private Long id;
     private Long lessonId;
     private String title;
-    private String filePath;
+    private String description;
+    private String filePath;   // audio fayl
+    private String pdfPath;     // PDF (ixtiyoriy)
     private Integer orderIndex;
     private LocalDateTime createdAt;
 }

@@ -35,22 +35,27 @@ public class NotificationService {
     }
 
     public Mono<Notification> send(Long userId, String title, String body, String type, Long refId) {
+        return send(userId, title, body, type, refId, null);
+    }
+
+    public Mono<Notification> send(Long userId, String title, String body, String type, Long refId, String image) {
         Notification n = Notification.builder()
                 .userId(userId)
                 .title(title)
                 .body(body)
                 .type(type)
                 .refId(refId)
+                .image(image)
                 .isRead(false)
                 .createdAt(LocalDateTime.now())
                 .build();
         // 1) Ilova ichidagi xabarni saqlash  2) qurilmaga push yuborish (token bo'lsa)
         return notificationRepository.save(n)
-                .flatMap(saved -> pushToUser(userId, title, body, type).thenReturn(saved));
+                .flatMap(saved -> pushToUser(userId, title, body, type, image).thenReturn(saved));
     }
 
     /** Foydalanuvchining FCM tokeni bo'lsa, push yuboradi (fire-and-forget, xato bo'lsa e'tiborsiz). */
-    private Mono<Void> pushToUser(Long userId, String title, String body, String type) {
+    private Mono<Void> pushToUser(Long userId, String title, String body, String type, String image) {
         if (!fcmService.isEnabled()) return Mono.empty();
         return userRepository.findById(userId)
                 .flatMap(u -> {
@@ -58,6 +63,7 @@ public class NotificationService {
                     if (token == null || token.isBlank()) return Mono.empty();
                     Map<String, String> data = new java.util.HashMap<>();
                     if (type != null) data.put("type", type);
+                    if (image != null && !image.isBlank()) data.put("image", image);
                     return fcmService.send(token, title, body, data);
                 })
                 .onErrorResume(e -> Mono.empty());
@@ -65,8 +71,12 @@ public class NotificationService {
 
     /** Bir nechta foydalanuvchiga bir xil xabar yuborish. Yuborilgan soni qaytadi. */
     public Mono<Long> sendBulk(java.util.Collection<Long> userIds, String title, String body, String type) {
+        return sendBulk(userIds, title, body, type, null);
+    }
+
+    public Mono<Long> sendBulk(java.util.Collection<Long> userIds, String title, String body, String type, String image) {
         return Flux.fromIterable(new java.util.LinkedHashSet<>(userIds))
-                .flatMap(uid -> send(uid, title, body, type, null))
+                .flatMap(uid -> send(uid, title, body, type, null, image), 16)
                 .count();
     }
 

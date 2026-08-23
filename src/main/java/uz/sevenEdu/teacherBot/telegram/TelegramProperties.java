@@ -10,4 +10,5 @@ import org.springframework.stereotype.Component;
 public class TelegramProperties {
     private String botToken;
     private String botUsername;
+    private boolean pollingEnabled = true;
 }

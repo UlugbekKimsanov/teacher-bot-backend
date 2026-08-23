@@ -125,9 +125,81 @@ public class ChatService {
                 .text(text)
                 .mediaPath(mediaPath)
                 .mediaType(mediaType)
+                .messageType("message")
+                .pinned(false)
+                .conferenceActive(false)
                 .createdAt(LocalDateTime.now())
                 .build();
         return courseChatMessageRepository.save(msg).map(this::toGroupDto);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // VIDEO KONFERENSIYA (Jitsi Meet)
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Ustoz kurs guruh chatida yangi video konferensiya boshlaydi.
+     * Avval o'sha kursning barcha faol konferensiyalari faolsizlantiriladi,
+     * so'ng noyob Jitsi xona linki bilan pinned konferensiya xabari yaratiladi.
+     */
+    public Mono<ChatMessageDto> startConference(Long courseId, Long senderId, String senderName,
+                                                String note, String scheduledAt) {
+        return courseChatMessageRepository.deactivateActiveConferences(courseId)
+                .then(Mono.defer(() -> {
+                    String room = "OazisCourse" + courseId + "-"
+                            + java.util.UUID.randomUUID().toString().substring(0, 8);
+                    String url = "https://meet.jit.si/" + room;
+                    String text = (note != null && !note.isBlank())
+                            ? note.trim()
+                            : "📹 Video konferensiya e'lon qilindi";
+                    LocalDateTime startAt;
+                    if (scheduledAt != null && !scheduledAt.isBlank()) {
+                        try {
+                            startAt = LocalDateTime.parse(scheduledAt.trim());
+                        } catch (Exception e) {
+                            startAt = LocalDateTime.now();
+                        }
+                    } else {
+                        startAt = LocalDateTime.now();
+                    }
+                    CourseChatMessage msg = CourseChatMessage.builder()
+                            .courseId(courseId)
+                            .senderId(senderId)
+                            .senderRole("teacher")
+                            .senderName(senderName)
+                            .text(text)
+                            .messageType("conference")
+                            .pinned(true)
+                            .conferenceActive(true)
+                            .conferenceUrl(url)
+                            .conferenceStartAt(startAt)
+                            .createdAt(LocalDateTime.now())
+                            .build();
+                    return courseChatMessageRepository.save(msg).map(this::toGroupDto);
+                }));
+    }
+
+    /**
+     * Ustoz faol konferensiyani tugatadi. Faol konferensiya topilsa
+     * conferenceActive=false, pinned=false qilib yangilanadi va DTO qaytariladi.
+     * Faol konferensiya bo'lmasa Mono.empty().
+     */
+    public Mono<ChatMessageDto> endConference(Long courseId, Long senderId, String senderName) {
+        return courseChatMessageRepository
+                .findFirstByCourseIdAndConferenceActiveTrueAndMessageType(courseId, "conference")
+                .flatMap(conf -> {
+                    conf.setConferenceActive(false);
+                    conf.setPinned(false);
+                    conf.setText("📹 Konferensiya tugadi");
+                    return courseChatMessageRepository.save(conf).map(this::toGroupDto);
+                });
+    }
+
+    /** Kursning hozirgi faol konferensiyasini qaytaradi (bo'lmasa Mono.empty()). */
+    public Mono<ChatMessageDto> getActiveConference(Long courseId) {
+        return courseChatMessageRepository
+                .findFirstByCourseIdAndConferenceActiveTrueAndMessageType(courseId, "conference")
+                .map(this::toGroupDto);
     }
 
     /**
@@ -194,6 +266,11 @@ public class ChatService {
                 .mediaType(m.getMediaType())
                 .createdAt(m.getCreatedAt() != null ? m.getCreatedAt().toString() : null)
                 .type("message")
+                .messageType(m.getMessageType() != null ? m.getMessageType() : "message")
+                .pinned(m.getPinned() != null ? m.getPinned() : false)
+                .conferenceUrl(m.getConferenceUrl())
+                .conferenceActive(m.getConferenceActive() != null ? m.getConferenceActive() : false)
+                .conferenceStartAt(m.getConferenceStartAt() != null ? m.getConferenceStartAt().toString() : null)
                 .build();
     }
 }

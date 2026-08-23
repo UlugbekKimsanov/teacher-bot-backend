@@ -22,6 +22,7 @@ public class Language {
     private String description;
     private String flagEmoji;
     private Boolean enabled;
+    private Integer orderIndex;   // ko'rsatish tartibi (admin drag&drop bilan sozlaydi)
     @Transient
     private int courseCount;
     @Transient

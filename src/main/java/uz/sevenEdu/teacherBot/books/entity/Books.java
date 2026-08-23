@@ -32,6 +32,10 @@ public class Books {
     private Double rating;
     private Integer reviewCount;
     private String language;
+    // Bosma (print) kitoblar uchun yetkazib berish:
+    // 'FREE' (tekin), 'NEGOTIABLE' (kelishiladi), 'PAID' (belgilangan summa)
+    private String deliveryType;
+    private Integer deliveryPrice;  // PAID bo'lsa — so'mда yetkazib berish narxi
     private String previewPages;    // JSON array string
     private String coverImage;      // yuklangan muqova rasmi yo'li
     private Integer imageId;

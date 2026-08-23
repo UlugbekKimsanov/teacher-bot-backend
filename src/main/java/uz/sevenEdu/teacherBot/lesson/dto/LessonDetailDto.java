@@ -29,7 +29,9 @@ public class LessonDetailDto {
     public static class AudiobookDto {
         private Long id;
         private String title;
-        private String url;
+        private String description;
+        private String url;     // audio
+        private String pdfUrl;  // PDF (ixtiyoriy)
     }
 
     @Data @Builder

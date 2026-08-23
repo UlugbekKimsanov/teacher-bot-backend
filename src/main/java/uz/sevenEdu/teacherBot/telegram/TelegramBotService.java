@@ -11,6 +11,10 @@ import uz.sevenEdu.teacherBot.user.enums.UserRole;
 import uz.sevenEdu.teacherBot.user.repository.UserRepository;
 
 import java.util.Map;
+import java.time.LocalDateTime;
+import com.fasterxml.jackson.databind.JsonNode;
+import uz.sevenEdu.teacherBot.telegram.entity.TelegramSubscriber;
+import uz.sevenEdu.teacherBot.telegram.repository.TelegramSubscriberRepository;
 
 /**
  * Telegram Bot API orqali xabar yuborish servisi.
@@ -24,6 +28,7 @@ public class TelegramBotService {
     private final TelegramProperties properties;
     private final UserRepository userRepository;
     private final WebClient.Builder webClientBuilder;
+    private final TelegramSubscriberRepository subscriberRepository;
 
     private static final String TELEGRAM_API = "https://api.telegram.org";
 
@@ -37,7 +42,12 @@ public class TelegramBotService {
 
         String url = TELEGRAM_API + "/bot" + properties.getBotToken() + "/sendMessage";
 
-        return webClientBuilder.build()
+        return webClientBuilder.clone()
+                // Tashqi xizmat osilsa zanjir bloklanmasligi uchun timeout.
+                .clientConnector(new org.springframework.http.client.reactive.ReactorClientHttpConnector(
+                        reactor.netty.http.client.HttpClient.create()
+                                .responseTimeout(java.time.Duration.ofSeconds(10))))
+                .build()
                 .post()
                 .uri(url)
                 .bodyValue(Map.of(
@@ -73,6 +83,75 @@ public class TelegramBotService {
                 .filter(user -> user.getTelegramChatId() != null)
                 .concatMap(user -> sendMessage(user.getTelegramChatId(), text))
                 .then();
+    }
+
+    /** Botni /start qilgan barcha faol obunachilarga xabar yuboradi. */
+    public Mono<Void> notifySubscribers(String text) {
+        return Flux.concat(
+                        subscriberRepository.findByActiveTrue().map(TelegramSubscriber::getChatId),
+                        userRepository.findAll()
+                                .filter(user -> user.getTelegramChatId() != null)
+                                .map(BaseUser::getTelegramChatId)
+                )
+                .distinct()
+                .flatMap(chatId -> sendMessage(chatId, text), 4)
+                .then();
+    }
+
+    public Mono<Void> handleUpdate(JsonNode update) {
+        JsonNode message = update.path("message");
+        JsonNode chat = message.path("chat");
+        if (message.isMissingNode() || chat.isMissingNode() || !chat.has("id")) return Mono.empty();
+
+        long chatId = chat.path("id").asLong();
+        String username = textOrNull(message.path("from").path("username"));
+        String firstName = textOrNull(message.path("from").path("first_name"));
+        String lastName = textOrNull(message.path("from").path("last_name"));
+        String fullName = String.join(" ",
+                firstName == null ? "" : firstName,
+                lastName == null ? "" : lastName).trim();
+        String text = textOrNull(message.path("text"));
+
+        if ("/stop".equalsIgnoreCase(text)) {
+            return setSubscriberActive(chatId, false)
+                    .then(sendMessage(chatId, "Xabarlar o'chirildi. Qayta ulanish uchun /start yuboring."));
+        }
+
+        return upsertSubscriber(chatId, username, fullName)
+                .then(text != null && text.startsWith("/start")
+                        ? handleStartCommand(chatId, text)
+                        : Mono.just("OAZIS Bot\nYangi arizalar shu yerga avtomatik yuboriladi.\nXabarlarni o'chirish: /stop"))
+                .flatMap(reply -> sendMessage(chatId, reply));
+    }
+
+    private Mono<TelegramSubscriber> upsertSubscriber(Long chatId, String username, String fullName) {
+        LocalDateTime now = LocalDateTime.now();
+        return subscriberRepository.findById(chatId)
+                .defaultIfEmpty(TelegramSubscriber.builder()
+                        .chatId(chatId)
+                        .subscribedAt(now)
+                        .build())
+                .flatMap(subscriber -> {
+                    subscriber.setUsername(username);
+                    subscriber.setFullName(fullName == null || fullName.isBlank() ? null : fullName);
+                    subscriber.setActive(true);
+                    subscriber.setUpdatedAt(now);
+                    return subscriberRepository.save(subscriber);
+                });
+    }
+
+    private Mono<Void> setSubscriberActive(Long chatId, boolean active) {
+        return subscriberRepository.findById(chatId)
+                .flatMap(subscriber -> {
+                    subscriber.setActive(active);
+                    subscriber.setUpdatedAt(LocalDateTime.now());
+                    return subscriberRepository.save(subscriber);
+                })
+                .then();
+    }
+
+    private String textOrNull(JsonNode node) {
+        return node == null || node.isMissingNode() || node.isNull() ? null : node.asText();
     }
 
     /**
