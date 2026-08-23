@@ -1,0 +1,50 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build jar (testlarsiz)
+        run: mvn -B -DskipTests clean package
+
+      - name: Copy jar to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "target/*.jar"
+          target: "/opt/teacher-bot/incoming"
+          strip_components: 1
+          overwrite: true
+
+      - name: Restart service
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            # target/*.jar ichida .jar.original bo'lishi mumkin — faqat asosiy jar
+            JAR=$(ls -S /opt/teacher-bot/incoming/*.jar | head -1)
+            mv "$JAR" /opt/teacher-bot/app.jar
+            rm -f /opt/teacher-bot/incoming/*.jar
+            systemctl restart teacher-bot
+            sleep 6
+            systemctl is-active teacher-bot

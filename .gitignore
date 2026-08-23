@@ -1,2 +1,23 @@
-# Project exclude paths
+# Maven build
 /target/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Runtime yuklamalari (serverда STORAGE_PATH orqali alohida saqlanadi)
+/storage/
+
+# Loglar
+*.log
+/logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Lokal env / maxfiy
+*.env
+!.env.example
