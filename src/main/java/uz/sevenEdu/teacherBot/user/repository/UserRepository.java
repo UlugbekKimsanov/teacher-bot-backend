@@ -13,6 +13,22 @@ public interface UserRepository extends ReactiveCrudRepository<BaseUser, Long> {
     Mono<Boolean> existsByPhone(String phone);
     Mono<Boolean> existsByEmail(String email);
 
+    /** Supports both canonical and legacy formatted phone values. */
+    @Query("""
+            SELECT * FROM users
+            WHERE regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') = :phoneDigits
+            LIMIT 1
+            """)
+    Mono<BaseUser> findByPhoneDigits(String phoneDigits);
+
+    @Query("""
+            SELECT EXISTS(
+                SELECT 1 FROM users
+                WHERE regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') = :phoneDigits
+            )
+            """)
+    Mono<Boolean> existsByPhoneDigits(String phoneDigits);
+
     @Query("SELECT * FROM users WHERE role = :role")
     Flux<BaseUser> findByRole(String role);
 

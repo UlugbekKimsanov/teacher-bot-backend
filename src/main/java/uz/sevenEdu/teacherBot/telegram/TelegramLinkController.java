@@ -5,6 +5,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.common.response.ApiResponse;
+import uz.sevenEdu.teacherBot.settings.service.IntegrationSettingsService;
 import uz.sevenEdu.teacherBot.user.repository.UserRepository;
 
 import java.util.Map;
@@ -18,7 +19,7 @@ import java.util.Map;
 public class TelegramLinkController {
 
     private final UserRepository userRepository;
-    private final TelegramProperties properties;
+    private final IntegrationSettingsService settingsService;
 
     /**
      * Telegram bot ulash uchun deeplink qaytaradi.
@@ -27,17 +28,19 @@ public class TelegramLinkController {
     @GetMapping("/link")
     public Mono<ApiResponse<Map<String, Object>>> getLinkInfo(Authentication auth) {
         Long userId = (Long) auth.getPrincipal();
-        return userRepository.findById(userId)
-                .map(user -> {
+        return settingsService.resolveTelegram()
+                .flatMap(settings -> userRepository.findById(userId).map(user -> {
                     boolean isLinked = user.getTelegramChatId() != null;
-                    String deeplink = "https://t.me/" + properties.getBotUsername()
-                            + "?start=link_" + userId;
+                    String username = settings.botUsername() != null ? settings.botUsername() : "";
+                    String deeplink = username.isBlank()
+                            ? ""
+                            : "https://t.me/" + username + "?start=link_" + userId;
                     return ApiResponse.ok(Map.of(
                             "isLinked", isLinked,
                             "deeplink", deeplink,
-                            "botUsername", properties.getBotUsername() != null ? properties.getBotUsername() : ""
+                            "botUsername", username
                     ));
-                });
+                }));
     }
 
     /**

@@ -10,12 +10,13 @@ import uz.sevenEdu.teacherBot.user.entity.BaseUser;
 import uz.sevenEdu.teacherBot.user.enums.UserRole;
 import uz.sevenEdu.teacherBot.user.repository.UserRepository;
 import uz.sevenEdu.teacherBot.user.security.JwtUtil;
+import uz.sevenEdu.teacherBot.user.util.PhoneNumberUtil;
 import uz.sevenEdu.teacherBot.common.exception.BadRequestException;
 import uz.sevenEdu.teacherBot.common.exception.UnauthorizedException;
 
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Random;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +29,7 @@ public class AuthServiceImpl implements AuthService {
     private final ReactiveStringRedisTemplate redisTemplate;
 
     private static final String PHONE_OTP_PREFIX = "phone_otp:";
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     @Override
     public Mono<Void> sendOtp(String email, boolean isLogin) {
@@ -36,15 +38,18 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public Mono<AuthResponse> register(RegisterRequest request) {
+        String normalizedPhone = PhoneNumberUtil.normalizeUzbekPhone(request.getPhone());
+        String phoneDigits = PhoneNumberUtil.digits(normalizedPhone);
+
         return otpService.verifyOtp(request.getEmail(), request.getOtpCode())
-                .then(userRepository.existsByPhone(request.getPhone()))
+                .then(userRepository.existsByPhoneDigits(phoneDigits))
                 .flatMap(exists -> {
                     if (exists) return Mono.error(new BadRequestException("Bu telefon raqam allaqachon ro'yxatdan o'tgan"));
                     BaseUser user = BaseUser.builder()
                             .firstName(request.getFirstName())
                             .lastName(request.getLastName())
                             .email(request.getEmail())
-                            .phone(request.getPhone())
+                            .phone(normalizedPhone)
                             .password(passwordEncoder.encode(request.getPassword()))
                             .role(UserRole.STUDENT)
                             .createdAt(LocalDateTime.now())
@@ -94,12 +99,13 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public Mono<Void> sendPhoneOtp(String phone, boolean isLogin) {
-        String normalizedPhone = normalizePhone(phone);
+        String normalizedPhone = PhoneNumberUtil.normalizeUzbekPhone(phone);
+        String phoneDigits = PhoneNumberUtil.digits(normalizedPhone);
 
         Mono<Boolean> check = isLogin
-                ? userRepository.existsByPhone(normalizedPhone)
+                ? userRepository.existsByPhoneDigits(phoneDigits)
                     .flatMap(exists -> exists ? Mono.just(true) : Mono.error(new BadRequestException("Bu telefon raqam ro'yxatdan o'tmagan!")))
-                : userRepository.existsByPhone(normalizedPhone)
+                : userRepository.existsByPhoneDigits(phoneDigits)
                     .flatMap(exists -> exists ? Mono.error(new BadRequestException("Bu telefon raqam allaqachon ro'yxatdan o'tgan!")) : Mono.just(true));
 
         return check.flatMap(ok -> {
@@ -114,16 +120,9 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public Mono<AuthResponse> phoneLogin(LoginRequest request) {
-        String normalizedPhone = normalizePhone(request.getEmail()); // phone is passed in email field
+        String normalizedPhone = PhoneNumberUtil.normalizeUzbekPhone(request.getEmail()); // phone is passed in email field
+        String phoneDigits = PhoneNumberUtil.digits(normalizedPhone);
         String otpCode = request.getPassword();
-
-        // TEST bypass: 55555 master kod — SMS kodsiz ham o'tadi. PRODUCTION'da olib tashlash kerak!
-        if ("55555".equals(otpCode)) {
-            return redisTemplate.delete(PHONE_OTP_PREFIX + normalizedPhone)
-                    .then(userRepository.findByPhone(normalizedPhone))
-                    .switchIfEmpty(Mono.error(new UnauthorizedException("Foydalanuvchi topilmadi")))
-                    .map(user -> toAuthResponse(user, true));
-        }
 
         return redisTemplate.opsForValue().get(PHONE_OTP_PREFIX + normalizedPhone)
                 .switchIfEmpty(Mono.error(new BadRequestException("SMS kod topilmadi yoki muddati o'tgan")))
@@ -132,7 +131,7 @@ public class AuthServiceImpl implements AuthService {
                         return Mono.error(new BadRequestException("SMS kod noto'g'ri"));
                     }
                     return redisTemplate.delete(PHONE_OTP_PREFIX + normalizedPhone)
-                            .then(userRepository.findByPhone(normalizedPhone));
+                            .then(userRepository.findByPhoneDigits(phoneDigits));
                 })
                 .switchIfEmpty(Mono.error(new UnauthorizedException("Foydalanuvchi topilmadi")))
                 .map(user -> toAuthResponse(user, true));
@@ -160,17 +159,6 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private String generateOtp() {
-        return String.format("%05d", new Random().nextInt(100000));
-    }
-
-    private String normalizePhone(String phone) {
-        String digits = phone.replaceAll("[^\\d]", "");
-        if (!digits.startsWith("998") && digits.length() == 9) {
-            digits = "998" + digits;
-        }
-        if (digits.startsWith("998")) {
-            return "+" + digits;
-        }
-        return phone;
+        return String.format("%05d", SECURE_RANDOM.nextInt(100000));
     }
 }

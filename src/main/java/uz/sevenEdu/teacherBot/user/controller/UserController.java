@@ -10,6 +10,7 @@ import uz.sevenEdu.teacherBot.user.dto.UpdateProfileRequest;
 import uz.sevenEdu.teacherBot.user.entity.BaseUser;
 import uz.sevenEdu.teacherBot.user.repository.UserRepository;
 import uz.sevenEdu.teacherBot.user.security.JwtUtil;
+import uz.sevenEdu.teacherBot.user.util.PhoneNumberUtil;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,7 +36,9 @@ public class UserController {
                 .flatMap(user -> {
                     if (request.getFirstName() != null) user.setFirstName(request.getFirstName());
                     if (request.getLastName() != null) user.setLastName(request.getLastName());
-                    if (request.getPhone() != null) user.setPhone(request.getPhone());
+                    if (request.getPhone() != null) {
+                        user.setPhone(PhoneNumberUtil.normalizeOptionalUzbekPhone(request.getPhone()));
+                    }
                     if (request.getAddress() != null) user.setAddress(request.getAddress());
                     return userRepository.save(user);
                 })

@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import com.fasterxml.jackson.databind.JsonNode;
 import uz.sevenEdu.teacherBot.telegram.entity.TelegramSubscriber;
 import uz.sevenEdu.teacherBot.telegram.repository.TelegramSubscriberRepository;
+import uz.sevenEdu.teacherBot.settings.service.IntegrationSettingsService;
 
 /**
  * Telegram Bot API orqali xabar yuborish servisi.
@@ -25,7 +26,7 @@ import uz.sevenEdu.teacherBot.telegram.repository.TelegramSubscriberRepository;
 @RequiredArgsConstructor
 public class TelegramBotService {
 
-    private final TelegramProperties properties;
+    private final IntegrationSettingsService settingsService;
     private final UserRepository userRepository;
     private final WebClient.Builder webClientBuilder;
     private final TelegramSubscriberRepository subscriberRepository;
@@ -36,30 +37,35 @@ public class TelegramBotService {
      * Bitta chatId ga xabar yuborish
      */
     public Mono<Void> sendMessage(Long chatId, String text) {
-        if (chatId == null || properties.getBotToken() == null || properties.getBotToken().isBlank()) {
-            return Mono.empty();
-        }
+        if (chatId == null) return Mono.empty();
 
-        String url = TELEGRAM_API + "/bot" + properties.getBotToken() + "/sendMessage";
+        return settingsService.resolveTelegram()
+                .flatMap(settings -> {
+                    if (settings.botToken() == null || settings.botToken().isBlank()) {
+                        return Mono.empty();
+                    }
 
-        return webClientBuilder.clone()
-                // Tashqi xizmat osilsa zanjir bloklanmasligi uchun timeout.
-                .clientConnector(new org.springframework.http.client.reactive.ReactorClientHttpConnector(
-                        reactor.netty.http.client.HttpClient.create()
-                                .responseTimeout(java.time.Duration.ofSeconds(10))))
-                .build()
-                .post()
-                .uri(url)
-                .bodyValue(Map.of(
-                        "chat_id", chatId,
-                        "text", text,
-                        "parse_mode", "HTML"
-                ))
-                .retrieve()
-                .bodyToMono(Map.class)
-                .doOnError(e -> log.warn("Telegram xabar yuborishda xato (chatId={}): {}", chatId, e.getMessage()))
-                .onErrorResume(e -> Mono.empty())
-                .then();
+                    String url = TELEGRAM_API + "/bot" + settings.botToken() + "/sendMessage";
+                    return webClientBuilder.clone()
+                            // Tashqi xizmat osilsa zanjir bloklanmasligi uchun timeout.
+                            .clientConnector(new org.springframework.http.client.reactive.ReactorClientHttpConnector(
+                                    reactor.netty.http.client.HttpClient.create()
+                                            .responseTimeout(java.time.Duration.ofSeconds(10))))
+                            .build()
+                            .post()
+                            .uri(url)
+                            .bodyValue(Map.of(
+                                    "chat_id", chatId,
+                                    "text", text,
+                                    "parse_mode", "HTML"
+                            ))
+                            .retrieve()
+                            .bodyToMono(Map.class)
+                            .doOnError(e -> log.warn("Telegram xabar yuborishda xato (chatId={}): {}",
+                                    chatId, e.getClass().getSimpleName()))
+                            .onErrorResume(e -> Mono.empty())
+                            .then();
+                });
     }
 
     /**

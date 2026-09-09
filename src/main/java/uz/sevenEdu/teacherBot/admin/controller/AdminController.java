@@ -26,6 +26,7 @@ import uz.sevenEdu.teacherBot.lesson.repository.*;
 import uz.sevenEdu.teacherBot.user.entity.BaseUser;
 import uz.sevenEdu.teacherBot.user.enums.UserRole;
 import uz.sevenEdu.teacherBot.user.repository.UserRepository;
+import uz.sevenEdu.teacherBot.user.util.PhoneNumberUtil;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -258,7 +259,7 @@ public class AdminController {
                     .firstName(body.get("firstName"))
                     .lastName(body.get("lastName"))
                     .email(body.get("email"))
-                    .phone(body.get("phone"))
+                    .phone(PhoneNumberUtil.normalizeOptionalUzbekPhone(body.get("phone")))
                     .password(passwordEncoder.encode(body.getOrDefault("password", "password")))
                     .role(newRole)
                     .specialization(body.get("specialization"))
@@ -296,7 +297,9 @@ public class AdminController {
                     if (body.containsKey("firstName")) user.setFirstName(body.get("firstName"));
                     if (body.containsKey("lastName")) user.setLastName(body.get("lastName"));
                     if (body.containsKey("email")) user.setEmail(body.get("email"));
-                    if (body.containsKey("phone")) user.setPhone(body.get("phone"));
+                    if (body.containsKey("phone")) {
+                        user.setPhone(PhoneNumberUtil.normalizeOptionalUzbekPhone(body.get("phone")));
+                    }
                     if (body.containsKey("specialization")) user.setSpecialization(body.get("specialization"));
 
                     // Rolni o'zgartirish

@@ -11,8 +11,8 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import uz.sevenEdu.teacherBot.user.repository.UserRepository;
 import uz.sevenEdu.teacherBot.common.exception.BadRequestException;
+import java.security.SecureRandom;
 import java.time.Duration;
-import java.util.Random;
 
 @Service
 @RequiredArgsConstructor
@@ -22,6 +22,7 @@ public class OtpService {
     private final UserRepository userRepository;
     private static final String OTP_PREFIX = "otp:";
     private static final long OTP_TTL_MINUTES = 5;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     public Mono<Void> sendOtp(String email, boolean isLogin) {
         Mono<Boolean> check = isLogin
@@ -40,14 +41,7 @@ public class OtpService {
         });
     }
 
-    // TEST: master kod — har doim o'tadi. PRODUCTION'da olib tashlash kerak!
-    private static final String TEST_MASTER_OTP = "55555";
-
     public Mono<Void> verifyOtp(String email, String otpCode) {
-        // TEST bypass: 55555 bo'lsa, saqlangan kod bo'lmasa ham o'tkazib yuboramiz
-        if (TEST_MASTER_OTP.equals(otpCode)) {
-            return redisTemplate.delete(OTP_PREFIX + email).then();
-        }
         return redisTemplate.opsForValue().get(OTP_PREFIX + email)
                 .switchIfEmpty(Mono.error(new BadRequestException("OTP kod topilmadi yoki muddati o'tgan")))
                 .flatMap(storedOtp -> {
@@ -72,7 +66,7 @@ public class OtpService {
     }
 
     private String generateOtp() {
-        return String.format("%05d", new Random().nextInt(100000));
+        return String.format("%05d", SECURE_RANDOM.nextInt(100000));
     }
 
     private String buildHtml(String otp) {

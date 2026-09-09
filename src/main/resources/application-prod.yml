@@ -25,6 +25,11 @@ app:
     base-path: ${STORAGE_PATH:/root/storage}
   firebase:
     service-account-path: ${FIREBASE_CREDENTIALS:}
+  eskiz:
+    email: ${ESKIZ_EMAIL:}
+    password: ${ESKIZ_PASSWORD:}
+    from: ${ESKIZ_FROM:4546}
+    base-url: ${ESKIZ_BASE_URL:https://notify.eskiz.uz/api}
 
 click:
   merchant-id: ${CLICK_MERCHANT_ID:24180}

@@ -15,6 +15,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:-7EDUTeacherBotSecretKeyForJWTTokenGeneration2024VeryLongSecretKey}
       MAIL_USER: ${MAIL_USER:-}
       MAIL_PASS: ${MAIL_PASS:-}
+      ESKIZ_EMAIL: ${ESKIZ_EMAIL:-}
+      ESKIZ_PASSWORD: ${ESKIZ_PASSWORD:-}
+      ESKIZ_FROM: ${ESKIZ_FROM:-4546}
+      ESKIZ_BASE_URL: ${ESKIZ_BASE_URL:-https://notify.eskiz.uz/api}
       CLICK_MERCHANT_ID: ${CLICK_MERCHANT_ID:-24180}
       CLICK_SERVICE_ID: ${CLICK_SERVICE_ID:-31879}
       CLICK_SECRET_KEY: ${CLICK_SECRET_KEY:-}

@@ -71,8 +71,10 @@ app:
     # Firebase service account JSON fayl yo'li. Bo'sh bo'lsa push (FCM) o'chiq bo'ladi.
     service-account-path: ${FIREBASE_CREDENTIALS:}
   eskiz:
-    email: your_eskiz_email@example.com
-    password: your_eskiz_password
+    email: ${ESKIZ_EMAIL:}
+    password: ${ESKIZ_PASSWORD:}
+    from: ${ESKIZ_FROM:4546}
+    base-url: ${ESKIZ_BASE_URL:https://notify.eskiz.uz/api}
 
 click:
   merchant-id: 24180
