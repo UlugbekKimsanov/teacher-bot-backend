@@ -12,6 +12,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
+import uz.sevenEdu.teacherBot.common.exception.ServiceUnavailableException;
 import uz.sevenEdu.teacherBot.settings.service.IntegrationSettingsService;
 import uz.sevenEdu.teacherBot.settings.service.IntegrationSettingsService.EskizRuntimeSettings;
 import uz.sevenEdu.teacherBot.user.util.PhoneNumberUtil;
@@ -44,7 +45,14 @@ public class EskizSmsService {
                 .then(getToken(settings))
                 .flatMap(token -> sendWithToken(token, providerPhone, message, settings.from())
                         .onErrorResume(WebClientResponseException.Unauthorized.class,
-                                error -> retryOnce(token, settings, providerPhone, message))));
+                                error -> retryOnce(token, settings, providerPhone, message))))
+                .onErrorMap(error -> !(error instanceof ServiceUnavailableException), error -> {
+                    log.error("Eskiz SMS delivery failed: {}", error.getMessage());
+                    return new ServiceUnavailableException(
+                            "SMS kodini yuborib bo'lmadi. Birozdan so'ng qayta urinib ko'ring",
+                            error
+                    );
+                });
     }
 
     private Mono<Void> sendWithToken(String token, String phone, String message, String sender) {
@@ -96,7 +104,8 @@ public class EskizSmsService {
     private Mono<Void> validate(EskizRuntimeSettings settings) {
         if (settings == null || isBlank(settings.email())
                 || isBlank(settings.password()) || isBlank(settings.from())) {
-            return Mono.error(new IllegalStateException("Eskiz SMS sozlamalari kiritilmagan"));
+            return Mono.error(new ServiceUnavailableException(
+                    "SMS xizmati hali sozlanmagan. Administratorga murojaat qiling"));
         }
         return Mono.empty();
     }

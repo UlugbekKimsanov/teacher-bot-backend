@@ -4,6 +4,7 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -11,6 +12,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import uz.sevenEdu.teacherBot.user.repository.UserRepository;
 import uz.sevenEdu.teacherBot.common.exception.BadRequestException;
+import uz.sevenEdu.teacherBot.common.exception.ServiceUnavailableException;
 import java.security.SecureRandom;
 import java.time.Duration;
 
@@ -60,8 +62,11 @@ public class OtpService {
             helper.setSubject("OAZIS - Tasdiqlash kodi");
             helper.setText(buildHtml(otpCode), true);
             mailSender.send(mimeMessage);
-        } catch (MessagingException e) {
-            throw new BadRequestException("Email yuborishda xatolik yuz berdi");
+        } catch (MessagingException | MailException e) {
+            throw new ServiceUnavailableException(
+                    "Tasdiqlash kodini emailga yuborib bo'lmadi. Birozdan so'ng qayta urinib ko'ring",
+                    e
+            );
         }
     }
 
