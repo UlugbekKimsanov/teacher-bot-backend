@@ -19,6 +19,7 @@ public class BaseUser {
     private String firstName;
     private String lastName;
     private String email;
+    private String googleSubject;
     private String phone;
     private String password;
     private String address;

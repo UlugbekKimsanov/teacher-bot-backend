@@ -42,7 +42,7 @@ public class RateLimitWebFilter implements WebFilter {
             return new Limit("otp", 5, 60);     // 5 / daqiqa / IP
         }
         // login / verify — brute-force
-        if (path.contains("login") || path.contains("verify")) {
+        if (path.contains("login") || path.contains("verify") || path.contains("google")) {
             return new Limit("login", 20, 60);  // 20 / daqiqa / IP
         }
         return null;

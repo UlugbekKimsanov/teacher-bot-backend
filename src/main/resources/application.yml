@@ -75,6 +75,9 @@ app:
     password: ${ESKIZ_PASSWORD:}
     from: ${ESKIZ_FROM:4546}
     base-url: ${ESKIZ_BASE_URL:https://notify.eskiz.uz/api}
+  google:
+    # Google Sign-In Web OAuth client ID(lar)i, vergul bilan ajratiladi.
+    oauth-client-ids: ${GOOGLE_OAUTH_CLIENT_IDS:}
 
 click:
   merchant-id: 24180

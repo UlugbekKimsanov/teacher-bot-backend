@@ -10,8 +10,12 @@ import uz.sevenEdu.teacherBot.user.entity.BaseUser;
 public interface UserRepository extends ReactiveCrudRepository<BaseUser, Long> {
     Mono<BaseUser> findByPhone(String phone);
     Mono<BaseUser> findByEmail(String email);
+    Mono<BaseUser> findByGoogleSubject(String googleSubject);
     Mono<Boolean> existsByPhone(String phone);
     Mono<Boolean> existsByEmail(String email);
+
+    @Query("SELECT * FROM users WHERE LOWER(email) = LOWER(:email) LIMIT 1")
+    Mono<BaseUser> findByEmailIgnoreCase(String email);
 
     /** Supports both canonical and legacy formatted phone values. */
     @Query("""

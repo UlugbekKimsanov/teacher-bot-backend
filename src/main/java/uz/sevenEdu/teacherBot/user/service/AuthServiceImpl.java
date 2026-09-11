@@ -27,6 +27,7 @@ public class AuthServiceImpl implements AuthService {
     private final OtpService otpService;
     private final EskizSmsService eskizSmsService;
     private final ReactiveStringRedisTemplate redisTemplate;
+    private final GoogleIdentityVerifier googleIdentityVerifier;
 
     private static final String PHONE_OTP_PREFIX = "phone_otp:";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
@@ -79,22 +80,39 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public Mono<AuthResponse> googleAuth(GoogleAuthRequest request) {
-        return userRepository.findByEmail(request.getEmail())
-                .map(user -> toAuthResponse(user, true))
-                .switchIfEmpty(
-                        // Auto-register if not exists
-                        Mono.defer(() -> {
-                            BaseUser user = BaseUser.builder()
-                                    .firstName(request.getFirstName() != null ? request.getFirstName() : "")
-                                    .lastName(request.getLastName() != null ? request.getLastName() : "")
-                                    .email(request.getEmail())
-                                    .password(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
-                                    .role(UserRole.STUDENT)
-                                    .createdAt(LocalDateTime.now())
-                                    .build();
-                            return userRepository.save(user).map(saved -> toAuthResponse(saved, true));
-                        })
-                );
+        return googleIdentityVerifier.verify(request.getIdToken())
+                .flatMap(identity -> userRepository.findByGoogleSubject(identity.subject())
+                        .switchIfEmpty(Mono.defer(() -> findOrCreateGoogleUser(identity))))
+                .map(user -> toAuthResponse(user, true));
+    }
+
+    private Mono<BaseUser> findOrCreateGoogleUser(GoogleIdentityVerifier.GoogleIdentity identity) {
+        return userRepository.findByEmailIgnoreCase(identity.email())
+                .flatMap(user -> {
+                    if (user.getGoogleSubject() != null
+                            && !user.getGoogleSubject().equals(identity.subject())) {
+                        return Mono.error(new UnauthorizedException(
+                                "Bu email boshqa Google hisobiga bog'langan"));
+                    }
+
+                    user.setGoogleSubject(identity.subject());
+                    if (user.getFirstName() == null || user.getFirstName().isBlank()) {
+                        user.setFirstName(identity.firstName());
+                    }
+                    if (user.getLastName() == null || user.getLastName().isBlank()) {
+                        user.setLastName(identity.lastName());
+                    }
+                    return userRepository.save(user);
+                })
+                .switchIfEmpty(Mono.defer(() -> userRepository.save(BaseUser.builder()
+                        .firstName(identity.firstName())
+                        .lastName(identity.lastName())
+                        .email(identity.email())
+                        .googleSubject(identity.subject())
+                        .password(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
+                        .role(UserRole.STUDENT)
+                        .createdAt(LocalDateTime.now())
+                        .build())));
     }
 
     @Override
