@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 2,
+  "navbar": {
+    "logo": "OAZIS",
+    "links": [
+      { "label": "Kurslar", "href": "#courses" },
+      { "label": "Biz haqimizda", "href": "#about" },
+      { "label": "Fikrlar", "href": "#testimonials" }
+    ],
+    "ctaLabel": "Ro'yxatdan o'tish",
+    "menuLabel": "Menyu"
+  },
+  "hero": {
+    "title": "BILIMGA BIR MARTA TO'LAYMIZ, BILIMSIZLIKKA ESA BIR UMR!",
+    "subtitle": "Oazis Chet tillarini atiga 4 oy ichida interaktiv va online usulda tez va oson o'rganing va maqsadingizga erishing!",
+    "primaryBtn": "Ma'lumot olish",
+    "secondaryBtn": "Kirish"
+  },
+  "stats": [
+    { "value": "1000+", "label": "o'quvchilar" },
+    { "value": "7", "label": "kurslar" },
+    { "value": "280+", "label": "videodarslar" }
+  ],
+  "featuresTitle": "Nima uchun OAZIS platformasi?",
+  "features": [
+    { "icon": "GraduationCap", "text": "Malakali ustozlar tomonidan to'liq video darsliklar" },
+    { "icon": "ClipboardCheck", "text": "Doimiy nazorat va davomat" },
+    { "icon": "MessageCircleQuestion", "text": "Mavzuga doir barcha savollarga aniq javoblar" },
+    { "icon": "Clock", "text": "Istalgan paytda va istalgan joyda o'rganish" }
+  ],
+  "courseInfoTitle": "Kurslar haqida qisqacha",
+  "courseInfo": [
+    { "icon": "Video", "text": "Video va Audio darsliklar orqali chet tillarini o'rgatamiz" },
+    { "icon": "Sparkles", "text": "Interaktiv va Meta ta'lim metodikalari orqali tushuntirilgan" },
+    { "icon": "Bot", "text": "AI ustozdan istalgan vaqtda mavzuga doir savollarga javob bor" },
+    { "icon": "Award", "text": "Kursni muvaffaqiyatli yakunlaganingizdan so'ng maxsus Sertifikat" }
+  ],
+  "goalsTitle": "Bizning maqsadimiz",
+  "goals": [
+    { "icon": "MessagesSquare", "title": "Atiga 4 oy ichida chet tillarida erkin muloqot darajasi" },
+    { "icon": "Brain", "title": "Aqliy zo'riqishlarga qarshi uslubda oson ta'lim berish" },
+    { "icon": "Timer", "title": "Vaqtingizni maksimal darajada tejab berish" }
+  ],
+  "testimonialsTitle": "O'quvchilarimiz fikrlari",
+  "testimonials": [
+    { "id": 1, "name": "O'quvchi fikri", "course": "Ingliz tili" },
+    { "id": 2, "name": "O'quvchi fikri", "course": "Rus tili" },
+    { "id": 3, "name": "O'quvchi fikri", "course": "Koreys tili" },
+    { "id": 4, "name": "O'quvchi fikri", "course": "Turk tili" },
+    { "id": 5, "name": "O'quvchi fikri", "course": "Arab tili" }
+  ],
+  "coursesTitle": "Kurslar",
+  "courseCard": {
+    "categoryLabel": "Til kurslari",
+    "studentsLabel": "o'quvchi",
+    "buyLabel": "Harid qilish"
+  },
+  "courses": [
+    { "id": "en", "flag": "🇬🇧", "name": "Ingliz tili kursi", "students": 136, "price": "799 000 so'm", "rating": 5.0 },
+    { "id": "ru", "flag": "🇷🇺", "name": "Rus tili kursi", "students": 109, "price": "799 000 so'm", "rating": 5.0 },
+    { "id": "ko", "flag": "🇰🇷", "name": "Koreys tili kursi", "students": 100, "price": "799 000 so'm", "rating": 5.0 },
+    { "id": "tr", "flag": "🇹🇷", "name": "Turk tili kursi", "students": 88, "price": "799 000 so'm", "rating": 5.0 },
+    { "id": "ar", "flag": "🇸🇦", "name": "Arab tili kursi", "students": 72, "price": "799 000 so'm", "rating": 5.0 },
+    { "id": "de", "flag": "🇩🇪", "name": "Nemis tili kursi", "students": 50, "price": "799 000 so'm", "rating": 5.0 },
+    { "id": "zh", "flag": "🇨🇳", "name": "Xitoy tili kursi", "students": 33, "price": "799 000 so'm", "rating": 5.0 }
+  ],
+  "bonusTitle": "Bonuslar",
+  "bonusText": "Harid qilgan Til kursingizning maxsus interaktiv kitoblarini bepul bonus sifatida sovg'a qilamiz!",
+  "bonusBooks": [
+    { "id": 1, "title": "Ingliz tili kitobi" },
+    { "id": 2, "title": "Rus tili kitobi" },
+    { "id": 3, "title": "Koreys tili kitobi" },
+    { "id": 4, "title": "Turk tili kitobi" },
+    { "id": 5, "title": "Arab tili kitobi" },
+    { "id": 6, "title": "Nemis tili kitobi" },
+    { "id": 7, "title": "Xitoy tili kitobi" },
+    { "id": 8, "title": "Grammatika kitobi" }
+  ],
+  "cta": {
+    "title": "Kursga qo'shilish",
+    "description": "Hoziroq ro'yxatdan o'tib tanlagan kursingizga a'zo bo'ling va maqsadingizga erishing!",
+    "nameLabel": "Ism",
+    "phoneLabel": "Telefon raqam",
+    "submitLabel": "Tasdiqlash"
+  },
+  "leadForm": {
+    "optionalLabel": "ixtiyoriy",
+    "namePlaceholder": "Ismingiz",
+    "phonePlaceholder": "+998 XX XXX XX XX",
+    "loadingLabel": "Yuborilmoqda...",
+    "invalidPhoneMessage": "Telefon raqamini to'liq kiriting.",
+    "successMessage": "Arizangiz qabul qilindi! Tez orada siz bilan bog'lanamiz.",
+    "errorMessage": "Xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko'ring."
+  },
+  "leadModal": {
+    "title": "Siz bilan bog'lanamiz",
+    "description": "Telefon raqamingizni qoldiring. Mutaxassisimiz sizga kurslar haqida batafsil ma'lumot beradi.",
+    "closeLabel": "Yopish"
+  },
+  "footer": {
+    "company": "Oazis Company",
+    "socialTitle": "Bizning ijtimoiy sahifalar",
+    "contactTitle": "Yagona aloqa markazi"
+  },
+  "contacts": {
+    "phone": "+998 71 200 53 53",
+    "telegram": "https://t.me/oazisedu",
+    "instagram": "https://instagram.com/oazisedu",
+    "youtube": "https://youtube.com/@oazisedu"
+  }
+}

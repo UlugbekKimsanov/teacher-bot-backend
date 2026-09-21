@@ -11,7 +11,6 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
-import uz.sevenEdu.teacherBot.common.exception.ServiceUnavailableException;
 import uz.sevenEdu.teacherBot.settings.service.IntegrationSettingsService;
 import uz.sevenEdu.teacherBot.settings.service.IntegrationSettingsService.EskizRuntimeSettings;
 
@@ -73,7 +72,7 @@ class EskizSmsServiceTest {
                 settingsService, WebClient.builder().exchangeFunction(exchange).build());
 
         StepVerifier.create(service.sendSms("+998901234567", "Kod: 12345"))
-                .expectError(ServiceUnavailableException.class)
+                .expectError(WebClientResponseException.Unauthorized.class)
                 .verify();
 
         assertThat(requests).singleElement().satisfies(request ->

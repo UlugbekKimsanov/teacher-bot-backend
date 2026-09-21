@@ -1,8 +1,8 @@
 package uz.sevenEdu.teacherBot.landing.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import uz.sevenEdu.teacherBot.landing.dto.LandingContentDto;
 import uz.sevenEdu.teacherBot.landing.dto.LeadDto;
 import uz.sevenEdu.teacherBot.landing.dto.LeadRequest;
 import uz.sevenEdu.teacherBot.landing.dto.LeadStatsDto;
@@ -17,7 +17,7 @@ public interface LandingService {
 
     Mono<LeadStatsDto> getLeadStats();
 
-    Mono<JsonNode> getContent();
+    Mono<LandingContentDto> getContent();
 
-    Mono<JsonNode> updateContent(JsonNode content);
+    Mono<LandingContentDto> updateContent(LandingContentDto content);
 }

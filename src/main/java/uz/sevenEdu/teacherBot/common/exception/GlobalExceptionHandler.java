@@ -1,6 +1,8 @@
 package uz.sevenEdu.teacherBot.common.exception;
 
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -43,14 +45,38 @@ public class GlobalExceptionHandler {
         String message = ex.getFieldErrors().stream()
                 .findFirst()
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
-                .orElse("So'rov ma'lumotlari noto'g'ri");
+                .orElseGet(() -> ex.getAllErrors().stream()
+                        .findFirst()
+                        .map(error -> error.getDefaultMessage() == null
+                                ? "So'rov validatsiyadan o'tmadi"
+                                : error.getDefaultMessage())
+                        .orElse("So'rov validatsiyadan o'tmadi"));
+        return ApiResponse.error(message);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleConstraintViolation(ConstraintViolationException ex) {
+        String message = ex.getConstraintViolations().stream()
+                .findFirst()
+                .map(error -> error.getPropertyPath() + ": " + error.getMessage())
+                .orElse("So'rov validatsiyadan o'tmadi");
         return ApiResponse.error(message);
     }
 
     @ExceptionHandler(ServerWebInputException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiResponse<Void> handleInvalidInput(ServerWebInputException ex) {
-        return ApiResponse.error("So'rov formati noto'g'ri");
+        return ApiResponse.error("So'rov JSON formati noto'g'ri");
+    }
+
+    @ExceptionHandler({PayloadTooLargeException.class, DataBufferLimitException.class})
+    @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
+    public ApiResponse<Void> handlePayloadTooLarge(Exception ex) {
+        String message = ex instanceof PayloadTooLargeException
+                ? ex.getMessage()
+                : "Yuklanayotgan fayl ruxsat etilgan hajmdan katta";
+        return ApiResponse.error(message);
     }
 
     @ExceptionHandler(ServiceUnavailableException.class)

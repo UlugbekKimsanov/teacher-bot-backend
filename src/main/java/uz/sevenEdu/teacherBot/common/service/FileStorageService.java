@@ -3,6 +3,9 @@ package uz.sevenEdu.teacherBot.common.service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
+import org.springframework.core.io.buffer.DataBufferLimitException;
+import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -11,16 +14,23 @@ import org.springframework.web.util.UriUtils;
 
 import uz.sevenEdu.teacherBot.common.enums.LanguageFileType;
 import uz.sevenEdu.teacherBot.common.enums.LessonFileType;
+import uz.sevenEdu.teacherBot.common.exception.BadRequestException;
+import uz.sevenEdu.teacherBot.common.exception.PayloadTooLargeException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class FileStorageService {
+
+    static final int MAX_LANDING_IMAGE_BYTES = 5 * 1024 * 1024;
 
     private final Path basePath;
 
@@ -231,6 +241,136 @@ public class FileStorageService {
         String fileName = "notif_" + uid + ext;
         Path dest = basePath.resolve("notifications").resolve(fileName);
         return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
+    /** Landing sahifasi rasmini saqlash. Path: landing/{uid}.{ext} */
+    public Mono<String> saveLandingImage(FilePart filePart) {
+        if (filePart == null || filePart.filename() == null || filePart.filename().isBlank()) {
+            return Mono.error(new BadRequestException("Rasm fayli tanlanmagan"));
+        }
+
+        return DataBufferUtils.join(filePart.content(), MAX_LANDING_IMAGE_BYTES)
+                .onErrorMap(DataBufferLimitException.class,
+                        ex -> new PayloadTooLargeException("Landing rasmi 5 MiB dan oshmasligi kerak"))
+                .switchIfEmpty(Mono.error(new BadRequestException("Bo'sh rasm fayli qabul qilinmaydi")))
+                .flatMap(buffer -> {
+                    byte[] bytes = new byte[buffer.readableByteCount()];
+                    try {
+                        buffer.read(bytes);
+                    } finally {
+                        DataBufferUtils.release(buffer);
+                    }
+                    return Mono.fromCallable(() -> saveValidatedLandingImage(filePart, bytes))
+                            .subscribeOn(Schedulers.boundedElastic());
+                });
+    }
+
+    private String saveValidatedLandingImage(FilePart filePart, byte[] bytes) {
+        if (bytes.length == 0) throw new BadRequestException("Bo'sh rasm fayli qabul qilinmaydi");
+        if (bytes.length > MAX_LANDING_IMAGE_BYTES) {
+            throw new PayloadTooLargeException("Landing rasmi 5 MiB dan oshmasligi kerak");
+        }
+
+        LandingImageType detected = detectLandingImage(bytes);
+        String extension = getExtension(filePart.filename()).toLowerCase(Locale.ROOT);
+        if (!detected.extensions.contains(extension)) {
+            throw new BadRequestException("Rasm kengaytmasi fayl tarkibiga mos emas");
+        }
+
+        MediaType declaredType = filePart.headers().getContentType();
+        String declaredMime = declaredType == null
+                ? ""
+                : (declaredType.getType() + "/" + declaredType.getSubtype()).toLowerCase(Locale.ROOT);
+        if (!detected.mime.equals(declaredMime)) {
+            throw new BadRequestException("Rasm MIME turi fayl tarkibiga mos emas");
+        }
+
+        String uid = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        Path dest = basePath.resolve("landing").resolve("landing_" + uid + detected.canonicalExtension);
+        createDirectories(dest.getParent());
+        try {
+            Files.write(dest, bytes, StandardOpenOption.CREATE_NEW);
+        } catch (IOException ex) {
+            throw new RuntimeException("Landing rasmini saqlab bo'lmadi", ex);
+        }
+        return basePath.relativize(dest).toString().replace("\\", "/");
+    }
+
+    private LandingImageType detectLandingImage(byte[] bytes) {
+        if (isJpeg(bytes)) return LandingImageType.JPEG;
+        if (isPng(bytes)) return LandingImageType.PNG;
+        if (isWebp(bytes)) return LandingImageType.WEBP;
+        throw new BadRequestException("Faqat haqiqiy JPEG, PNG yoki WebP rasm qabul qilinadi");
+    }
+
+    private boolean isJpeg(byte[] bytes) {
+        return bytes.length >= 4
+                && unsigned(bytes[0]) == 0xFF && unsigned(bytes[1]) == 0xD8
+                && unsigned(bytes[2]) == 0xFF
+                && unsigned(bytes[bytes.length - 2]) == 0xFF
+                && unsigned(bytes[bytes.length - 1]) == 0xD9;
+    }
+
+    private boolean isPng(byte[] bytes) {
+        int[] signature = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+        int[] iend = {0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+        return bytes.length >= 45
+                && matches(bytes, 0, signature)
+                && matchesAscii(bytes, 12, "IHDR")
+                && matches(bytes, bytes.length - iend.length, iend);
+    }
+
+    private boolean isWebp(byte[] bytes) {
+        if (bytes.length < 20
+                || !matchesAscii(bytes, 0, "RIFF")
+                || !matchesAscii(bytes, 8, "WEBP")) {
+            return false;
+        }
+        long declaredSize = Integer.toUnsignedLong(
+                unsigned(bytes[4])
+                        | (unsigned(bytes[5]) << 8)
+                        | (unsigned(bytes[6]) << 16)
+                        | (unsigned(bytes[7]) << 24));
+        if (declaredSize + 8 != bytes.length) return false;
+        return matchesAscii(bytes, 12, "VP8 ")
+                || matchesAscii(bytes, 12, "VP8L")
+                || matchesAscii(bytes, 12, "VP8X");
+    }
+
+    private boolean matches(byte[] bytes, int offset, int[] expected) {
+        if (offset < 0 || offset + expected.length > bytes.length) return false;
+        for (int i = 0; i < expected.length; i++) {
+            if (unsigned(bytes[offset + i]) != expected[i]) return false;
+        }
+        return true;
+    }
+
+    private boolean matchesAscii(byte[] bytes, int offset, String expected) {
+        if (offset < 0 || offset + expected.length() > bytes.length) return false;
+        for (int i = 0; i < expected.length(); i++) {
+            if (unsigned(bytes[offset + i]) != expected.charAt(i)) return false;
+        }
+        return true;
+    }
+
+    private int unsigned(byte value) {
+        return value & 0xFF;
+    }
+
+    private enum LandingImageType {
+        JPEG("image/jpeg", ".jpg", Set.of(".jpg", ".jpeg")),
+        PNG("image/png", ".png", Set.of(".png")),
+        WEBP("image/webp", ".webp", Set.of(".webp"));
+
+        private final String mime;
+        private final String canonicalExtension;
+        private final Set<String> extensions;
+
+        LandingImageType(String mime, String canonicalExtension, Set<String> extensions) {
+            this.mime = mime;
+            this.canonicalExtension = canonicalExtension;
+            this.extensions = extensions;
+        }
     }
 
     // ── Path → URL ─────────────────────────────────────────

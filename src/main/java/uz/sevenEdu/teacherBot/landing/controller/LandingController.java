@@ -1,11 +1,11 @@
 package uz.sevenEdu.teacherBot.landing.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.common.response.ApiResponse;
+import uz.sevenEdu.teacherBot.landing.dto.LandingContentDto;
 import uz.sevenEdu.teacherBot.landing.dto.LeadDto;
 import uz.sevenEdu.teacherBot.landing.dto.LeadRequest;
 import uz.sevenEdu.teacherBot.landing.service.LandingService;
@@ -20,7 +20,7 @@ public class LandingController {
 
     /** Landing sahifa kontenti — bitta JSON obyekt. */
     @GetMapping
-    public Mono<ApiResponse<JsonNode>> getContent() {
+    public Mono<ApiResponse<LandingContentDto>> getContent() {
         return landingService.getContent().map(ApiResponse::ok);
     }
 

@@ -1,16 +1,14 @@
 package uz.sevenEdu.teacherBot.landing.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.landing.dto.LeadDto;
+import uz.sevenEdu.teacherBot.landing.dto.LandingContentDto;
 import uz.sevenEdu.teacherBot.landing.dto.LeadRequest;
 import uz.sevenEdu.teacherBot.landing.dto.LeadStatsDto;
 import uz.sevenEdu.teacherBot.landing.dto.LeadUpdateRequest;
-import uz.sevenEdu.teacherBot.landing.entity.LandingContent;
 import uz.sevenEdu.teacherBot.landing.entity.LandingLead;
 import uz.sevenEdu.teacherBot.landing.repository.LandingContentRepository;
 import uz.sevenEdu.teacherBot.landing.repository.LandingLeadRepository;
@@ -29,7 +27,7 @@ public class LandingServiceImpl implements LandingService {
 
     private final LandingLeadRepository leadRepository;
     private final LandingContentRepository contentRepository;
-    private final ObjectMapper objectMapper;
+    private final LandingContentNormalizer contentNormalizer;
     private final TelegramBotService telegramBotService;
 
     @Override
@@ -84,23 +82,17 @@ public class LandingServiceImpl implements LandingService {
     }
 
     @Override
-    public Mono<JsonNode> getContent() {
+    public Mono<LandingContentDto> getContent() {
         return contentRepository.findById(CONTENT_ID)
-                .map(c -> parse(c.getContent()));
+                .map(c -> contentNormalizer.normalize(c.getContent()))
+                .switchIfEmpty(Mono.fromSupplier(contentNormalizer::defaultContent));
     }
 
     @Override
-    public Mono<JsonNode> updateContent(JsonNode content) {
-        String json = write(content);
-        return contentRepository.findById(CONTENT_ID)
-                .defaultIfEmpty(LandingContent.builder().id(CONTENT_ID).build())
-                .flatMap(entity -> {
-                    entity.setContent(json);
-                    // id oldindan berilgani uchun UPDATE bo'ladi; yo'q bo'lsa INSERT uchun isNew hisoblanmaydi,
-                    // shu sabab migratsiyada id=1 qatori kafolatlangan.
-                    return contentRepository.save(entity);
-                })
-                .map(c -> parse(c.getContent()));
+    public Mono<LandingContentDto> updateContent(LandingContentDto content) {
+        String json = contentNormalizer.write(content);
+        return contentRepository.upsert(CONTENT_ID, json)
+                .map(c -> contentNormalizer.normalize(c.getContent()));
     }
 
     private LeadDto toDto(LandingLead l) {
@@ -132,19 +124,4 @@ public class LandingServiceImpl implements LandingService {
         return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    private JsonNode parse(String json) {
-        try {
-            return objectMapper.readTree(json);
-        } catch (Exception e) {
-            throw new RuntimeException("Landing kontentini o'qishda xatolik", e);
-        }
-    }
-
-    private String write(JsonNode node) {
-        try {
-            return objectMapper.writeValueAsString(node);
-        } catch (Exception e) {
-            throw new RuntimeException("Landing kontentini saqlashda xatolik", e);
-        }
-    }
 }

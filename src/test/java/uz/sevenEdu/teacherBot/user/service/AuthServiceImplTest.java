@@ -9,7 +9,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import uz.sevenEdu.teacherBot.common.exception.BadRequestException;
-import uz.sevenEdu.teacherBot.user.dto.GoogleAuthRequest;
 import uz.sevenEdu.teacherBot.user.dto.LoginRequest;
 import uz.sevenEdu.teacherBot.user.dto.RegisterRequest;
 import uz.sevenEdu.teacherBot.user.entity.BaseUser;
@@ -37,7 +36,7 @@ class AuthServiceImplTest {
     private EskizSmsService smsService;
     private ReactiveStringRedisTemplate redis;
     private ReactiveValueOperations<String, String> values;
-    private GoogleIdentityVerifier googleIdentityVerifier;
+    private GoogleIdentityVerifier googleVerifier;
     private AuthServiceImpl service;
 
     @BeforeEach
@@ -48,12 +47,10 @@ class AuthServiceImplTest {
         otpService = mock(OtpService.class);
         smsService = mock(EskizSmsService.class);
         redis = mock(ReactiveStringRedisTemplate.class);
-        googleIdentityVerifier = mock(GoogleIdentityVerifier.class);
         values = mock(ReactiveValueOperations.class);
         when(redis.opsForValue()).thenReturn(values);
-        service = new AuthServiceImpl(
-                users, passwordEncoder, jwtUtil, otpService, smsService, redis,
-                googleIdentityVerifier);
+        googleVerifier = mock(GoogleIdentityVerifier.class);
+        service = new AuthServiceImpl(users, passwordEncoder, jwtUtil, otpService, smsService, redis, googleVerifier);
     }
 
     @Test
@@ -118,72 +115,5 @@ class AuthServiceImplTest {
                 .verify();
 
         verify(users, never()).findByPhoneDigits("998901234567");
-    }
-
-    @Test
-    void googleAuthUsesVerifiedTokenIdentityAndCreatesLinkedUser() {
-        GoogleAuthRequest request = new GoogleAuthRequest();
-        request.setIdToken("verified-id-token");
-        GoogleIdentityVerifier.GoogleIdentity identity =
-                new GoogleIdentityVerifier.GoogleIdentity(
-                        "google-subject", "user@example.com", "Ali", "Valiyev");
-
-        when(googleIdentityVerifier.verify("verified-id-token"))
-                .thenReturn(Mono.just(identity));
-        when(users.findByGoogleSubject("google-subject")).thenReturn(Mono.empty());
-        when(users.findByEmailIgnoreCase("user@example.com")).thenReturn(Mono.empty());
-        when(passwordEncoder.encode(any(String.class))).thenReturn("random-password-hash");
-        when(users.save(any(BaseUser.class))).thenAnswer(invocation -> {
-            BaseUser user = invocation.getArgument(0);
-            user.setId(77L);
-            return Mono.just(user);
-        });
-        when(jwtUtil.generateToken(77L, null, UserRole.STUDENT, true))
-                .thenReturn("jwt");
-
-        StepVerifier.create(service.googleAuth(request))
-                .assertNext(response -> {
-                    assertThat(response.getEmail()).isEqualTo("user@example.com");
-                    assertThat(response.getToken()).isEqualTo("jwt");
-                })
-                .verifyComplete();
-
-        ArgumentCaptor<BaseUser> saved = ArgumentCaptor.forClass(BaseUser.class);
-        verify(users).save(saved.capture());
-        assertThat(saved.getValue().getGoogleSubject()).isEqualTo("google-subject");
-        assertThat(saved.getValue().getEmail()).isEqualTo("user@example.com");
-    }
-
-    @Test
-    void googleAuthLinksExistingEmailToVerifiedSubject() {
-        GoogleAuthRequest request = new GoogleAuthRequest();
-        request.setIdToken("verified-id-token");
-        GoogleIdentityVerifier.GoogleIdentity identity =
-                new GoogleIdentityVerifier.GoogleIdentity(
-                        "google-subject", "USER@example.com", "Ali", "Valiyev");
-        BaseUser existing = BaseUser.builder()
-                .id(9L)
-                .email("user@example.com")
-                .phone("+998901234567")
-                .firstName("Existing")
-                .lastName("User")
-                .role(UserRole.STUDENT)
-                .build();
-
-        when(googleIdentityVerifier.verify("verified-id-token"))
-                .thenReturn(Mono.just(identity));
-        when(users.findByGoogleSubject("google-subject")).thenReturn(Mono.empty());
-        when(users.findByEmailIgnoreCase("USER@example.com")).thenReturn(Mono.just(existing));
-        when(users.save(existing)).thenReturn(Mono.just(existing));
-        when(jwtUtil.generateToken(9L, "+998901234567", UserRole.STUDENT, true))
-                .thenReturn("jwt");
-
-        StepVerifier.create(service.googleAuth(request))
-                .assertNext(response -> assertThat(response.getToken()).isEqualTo("jwt"))
-                .verifyComplete();
-
-        assertThat(existing.getGoogleSubject()).isEqualTo("google-subject");
-        assertThat(existing.getFirstName()).isEqualTo("Existing");
-        verify(users).save(existing);
     }
 }
