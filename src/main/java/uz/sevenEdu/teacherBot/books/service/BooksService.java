@@ -300,6 +300,50 @@ public class BooksService {
                 .map(b -> mapToDto(b, false, false));
     }
 
+    /** Kitob galereyasiga rasm qo'shish (admin). */
+    public Mono<Books> addBookImage(Long id, org.springframework.http.codec.multipart.FilePart file) {
+        return booksRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("Kitob topilmadi")))
+                .flatMap(book -> fileStorageService.saveBookImage(id, file)
+                        .flatMap(path -> {
+                            List<String> imgs = readImageList(book.getImages());
+                            imgs.add(path);
+                            book.setImages(writeImageList(imgs));
+                            book.setUpdatedAt(LocalDateTime.now());
+                            return booksRepository.save(book);
+                        }));
+    }
+
+    /** Kitob galereyasidan rasmni olib tashlash va faylni o'chirish (admin). */
+    public Mono<Books> removeBookImage(Long id, String path) {
+        return booksRepository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("Kitob topilmadi")))
+                .flatMap(book -> {
+                    List<String> imgs = readImageList(book.getImages());
+                    if (imgs.remove(path)) {
+                        fileStorageService.deleteStoredFile(path);
+                        book.setImages(writeImageList(imgs));
+                        book.setUpdatedAt(LocalDateTime.now());
+                        return booksRepository.save(book);
+                    }
+                    return Mono.just(book);
+                });
+    }
+
+    private List<String> readImageList(String json) {
+        if (json == null || json.isBlank()) return new ArrayList<>();
+        try {
+            return mapper.readValue(json, new TypeReference<List<String>>() {});
+        } catch (Exception e) {
+            return new ArrayList<>();
+        }
+    }
+
+    private String writeImageList(List<String> imgs) {
+        try { return mapper.writeValueAsString(imgs); }
+        catch (Exception e) { return "[]"; }
+    }
+
     public Mono<BooksDto> deleteBookAndReturn(Long id) {
         return booksRepository.findById(id)
                 .switchIfEmpty(Mono.error(new RuntimeException("Kitob topilmadi")))
@@ -349,6 +393,9 @@ public class BooksService {
                 .deliveryType(entity.getDeliveryType())
                 .deliveryPrice(entity.getDeliveryPrice())
                 .coverUrl(fileStorageService.toPublicUrl(entity.getCoverImage()))
+                .imageUrls(readImageList(entity.getImages()).stream()
+                        .map(fileStorageService::toPublicUrl)
+                        .collect(Collectors.toList()))
                 .previewPages(previewPages)
                 .isPurchased(isPurchased)
                 .inLibrary(inLibrary)

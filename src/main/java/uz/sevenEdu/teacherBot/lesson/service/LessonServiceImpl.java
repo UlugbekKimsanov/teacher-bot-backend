@@ -19,6 +19,9 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class LessonServiceImpl implements LessonService {
+    /** Bo'limni o'tgan hisoblash uchun minimal foiz. */
+    private static final int PASS_PERCENT = 50;
+
     private final LessonRepository lessonRepository;
     private final VocabularyRepository vocabularyRepository;
     private final QuestionRepository questionRepository;
@@ -225,31 +228,39 @@ public class LessonServiceImpl implements LessonService {
     }
 
     /**
-     * Score'lar endi 0-100 foiz formatda saqlanadi.
-     * Har bir modul kamida 50% (5 ball) bo'lganda keyingi dars ochiladi.
-     * Ball = foiz / 10 (masalan 70% → 7 ball) — points jadvaliga yoziladi.
+     * Score'lar 0-100 foiz formatda saqlanadi.
+     * Faqat darsda MAVJUD bo'limlar talab qilinadi: bo'lim biriktirilmagan bo'lsa
+     * u shartga kirmaydi (masalan faqat test bor darsda testni 50%+ ishlash kifoya).
+     * Hech bo'lmaganda bitta bo'lim mavjud bo'lishi kerak — bo'sh dars avto-tugamaydi.
      */
     private Mono<Void> checkAndComplete(UserLesson ul, Long lessonId, Long userId) {
-        // Har bir modul kamida 50% bo'lishi kerak
-        boolean vocabPassed    = ul.getVocabScore()    != null && ul.getVocabScore()    >= 50;
-        boolean testPassed     = ul.getTestScore()     != null && ul.getTestScore()     >= 50;
-        boolean exercisePassed = ul.getExerciseScore() != null && ul.getExerciseScore() >= 50;
-
-        boolean wasCompleted = Boolean.TRUE.equals(ul.getIsCompleted());
-
-        if (vocabPassed && testPassed && exercisePassed && !wasCompleted) {
-            ul.setIsCompleted(true);
-            ul.setCompletedAt(LocalDateTime.now());
+        if (Boolean.TRUE.equals(ul.getIsCompleted())) {
+            return userLessonRepository.save(ul).then();
         }
+        return Mono.zip(
+                        vocabularyRepository.findByLessonIdOrderByOrderIndex(lessonId).count(),
+                        questionRepository.findByLessonId(lessonId).count(),
+                        exerciseRepository.findByLessonIdOrderByOrderIndex(lessonId).count())
+                .flatMap(counts -> {
+                    long vocabCount = counts.getT1();
+                    long testCount = counts.getT2();
+                    long exerciseCount = counts.getT3();
 
-        return userLessonRepository.save(ul)
-                .then(Mono.defer(() -> {
-                    // Har bir submit'da ball qo'shish (foiz / 10)
-                    // Qaysi modul submit qilinganini aniqlash: eng oxirgi o'zgartilgan score
-                    // Bu yerda oxirgi submit'ni aniqlash qiyin, shuning uchun har uchala modul uchun
-                    // ball alohida qo'shiladi — submitTest, submitExercise, submitVocab da
-                    return Mono.empty();
-                })).then();
+                    boolean vocabPassed = vocabCount == 0
+                            || (ul.getVocabScore() != null && ul.getVocabScore() >= PASS_PERCENT);
+                    boolean testPassed = testCount == 0
+                            || (ul.getTestScore() != null && ul.getTestScore() >= PASS_PERCENT);
+                    boolean exercisePassed = exerciseCount == 0
+                            || (ul.getExerciseScore() != null && ul.getExerciseScore() >= PASS_PERCENT);
+                    boolean hasAnySection = vocabCount + testCount + exerciseCount > 0;
+
+                    if (hasAnySection && vocabPassed && testPassed && exercisePassed) {
+                        ul.setIsCompleted(true);
+                        ul.setCompletedAt(LocalDateTime.now());
+                    }
+                    return userLessonRepository.save(ul);
+                })
+                .then();
     }
 
     private Mono<Void> addPoints(Long userId, String activity, int percentScore) {

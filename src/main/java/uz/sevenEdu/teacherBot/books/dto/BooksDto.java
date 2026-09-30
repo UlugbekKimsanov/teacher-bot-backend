@@ -36,6 +36,7 @@ public class BooksDto {
     private Integer fileId;
     private String fileUrl;
     private String coverUrl;         // yuklangan muqova rasmi (to'liq URL)
+    private List<String> imageUrls;  // qo'shimcha rasmlar galereyasi (to'liq URL'lar)
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

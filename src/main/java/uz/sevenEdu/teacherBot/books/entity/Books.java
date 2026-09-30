@@ -38,6 +38,7 @@ public class Books {
     private Integer deliveryPrice;  // PAID bo'lsa — so'mда yetkazib berish narxi
     private String previewPages;    // JSON array string
     private String coverImage;      // yuklangan muqova rasmi yo'li
+    private String images;          // qo'shimcha rasmlar (galereya) — JSON array string
     private Integer imageId;
     private Integer fileId;
     private String filePath;

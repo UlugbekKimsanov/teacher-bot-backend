@@ -48,6 +48,7 @@ public class AdminController {
     private final ExerciseRepository exerciseRepository;
     private final TestRepository testRepository;
     private final BooksRepository booksRepository;
+    private final uz.sevenEdu.teacherBot.books.service.BooksService booksService;
     private final CourseTeacherRepository courseTeacherRepository;
     private final UserCourseRepository userCourseRepository;
     private final FileStorageService fileStorageService;
@@ -1012,6 +1013,28 @@ public class AdminController {
                 )
                 .map(ApiResponse::ok)
         );
+    }
+
+    /**
+     * Kitob galereyasiga rasm qo'shish (bir nechta rasm saqlanadi)
+     */
+    @PostMapping(value = "/books/{id}/upload-image", consumes = "multipart/form-data")
+    public Mono<ApiResponse<Books>> uploadBookImage(Authentication auth, @PathVariable Long id,
+                                                     @RequestPart("file") FilePart file) {
+        return requireAdmin(auth)
+                .then(booksService.addBookImage(id, file))
+                .map(ApiResponse::ok);
+    }
+
+    /**
+     * Kitob galereyasidan rasmni o'chirish (path — bazadagi nisbiy yo'l)
+     */
+    @DeleteMapping("/books/{id}/images")
+    public Mono<ApiResponse<Books>> deleteBookImage(Authentication auth, @PathVariable Long id,
+                                                     @RequestParam("path") String path) {
+        return requireAdmin(auth)
+                .then(booksService.removeBookImage(id, path))
+                .map(ApiResponse::ok);
     }
 
     // ── News CRUD ───────────────────────────────────────────────

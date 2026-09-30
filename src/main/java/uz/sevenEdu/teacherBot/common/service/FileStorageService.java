@@ -149,6 +149,23 @@ public class FileStorageService {
     }
 
     /**
+     * Kitob galereya rasmi saqlash (eski fayl o'chirilmaydi — bir nechta rasm saqlanadi)
+     * Path: books/{bookId}/img_{bookId}_{uid}.{ext}
+     */
+    public Mono<String> saveBookImage(Long bookId, FilePart filePart) {
+        String ext = getExtension(filePart.filename());
+        String uid = UUID.randomUUID().toString().substring(0, 8);
+        String fileName = "img_" + bookId + "_" + uid + ext;
+        Path dest = basePath.resolve("books").resolve(String.valueOf(bookId)).resolve(fileName);
+        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
+    /** Saqlangan faylni nisbiy yo'l bo'yicha o'chirish (galereyadan rasm olib tashlashda). */
+    public void deleteStoredFile(String relativePath) {
+        deleteIfExists(relativePath);
+    }
+
+    /**
      * Kurs card (cover) rasmi saqlash
      * Path: courses/{courseId}/cover_{courseId}_{uid}.{ext}
      */
