@@ -155,9 +155,11 @@ public class LessonServiceImpl implements LessonService {
                     }
                     return getOrCreateUserLesson(userId, lessonId)
                             .flatMap(ul -> {
-                                ul.setTestScore(pct);
+                                int prev = ul.getTestScore() != null ? ul.getTestScore() : 0;
+                                int best = Math.max(prev, pct);
+                                ul.setTestScore(best);
                                 return checkAndComplete(ul, lessonId, userId)
-                                        .then(addPoints(userId, "Test — Dars", pct))
+                                        .then(awardPoints(userId, "Test — Dars", best / 10 - prev / 10))
                                         .then(buildResult(pct, userId));
                             });
                 });
@@ -180,9 +182,11 @@ public class LessonServiceImpl implements LessonService {
                     }
                     return getOrCreateUserLesson(userId, lessonId)
                             .flatMap(ul -> {
-                                ul.setExerciseScore(pct);
+                                int prev = ul.getExerciseScore() != null ? ul.getExerciseScore() : 0;
+                                int best = Math.max(prev, pct);
+                                ul.setExerciseScore(best);
                                 return checkAndComplete(ul, lessonId, userId)
-                                        .then(addPoints(userId, "Mashq — Dars", pct))
+                                        .then(awardPoints(userId, "Mashq — Dars", best / 10 - prev / 10))
                                         .then(buildResult(pct, userId));
                             });
                 });
@@ -199,9 +203,11 @@ public class LessonServiceImpl implements LessonService {
                     }
                     return getOrCreateUserLesson(userId, lessonId)
                             .flatMap(ul -> {
-                                ul.setVocabScore(pct);
+                                int prev = ul.getVocabScore() != null ? ul.getVocabScore() : 0;
+                                int best = Math.max(prev, pct);
+                                ul.setVocabScore(best);
                                 return checkAndComplete(ul, lessonId, userId)
-                                        .then(addPoints(userId, "Lug'at — Dars", pct))
+                                        .then(awardPoints(userId, "Lug'at — Dars", best / 10 - prev / 10))
                                         .then(buildResult(pct, userId));
                             });
                 });
@@ -263,8 +269,12 @@ public class LessonServiceImpl implements LessonService {
                 .then();
     }
 
-    private Mono<Void> addPoints(Long userId, String activity, int percentScore) {
-        int points = percentScore / 10; // 70% → 7 ball
+    /**
+     * Ball faqat natija YAXSHILANGANDA beriladi: delta = yangiBest/10 - eskiBest/10.
+     * Shu bilan bitta modulni qayta-qayta topshirib ball yig'ish (farming) yopiladi —
+     * modul bo'yicha jami ball hech qachon eng yaxshi natija ballidan oshmaydi.
+     */
+    private Mono<Void> awardPoints(Long userId, String activity, int points) {
         if (points <= 0) return Mono.empty();
         return pointsRepository.save(uz.sevenEdu.teacherBot.rating.entity.Points.builder()
                 .userId(userId)
