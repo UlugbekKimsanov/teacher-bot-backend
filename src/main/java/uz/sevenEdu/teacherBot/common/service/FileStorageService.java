@@ -32,6 +32,16 @@ public class FileStorageService {
 
     static final int MAX_LANDING_IMAGE_BYTES = 5 * 1024 * 1024;
 
+    /**
+     * Dars videosi uchun maksimal hajm — 2 GiB.
+     * Nginx'dagi {@code client_max_body_size} bilan bir xil bo'lishi kerak
+     * (deploy/api.oazisedu.uz.conf), aks holda 413 nginx'dan qaytib,
+     * bizning xato matnimiz foydalanuvchiga yetib bormaydi.
+     */
+    public static final long MAX_VIDEO_BYTES = 2L * 1024 * 1024 * 1024;
+
+    private static final String VIDEO_TOO_LARGE_MESSAGE = "Video hajmi 2 GB dan oshmasligi kerak";
+
     private final Path basePath;
 
     public FileStorageService(@Value("${app.storage.base-path}") String basePath) {
@@ -215,12 +225,27 @@ public class FileStorageService {
      * Path: lessons/{lessonId}/video_{lessonId}_{uid}.{ext}
      */
     public Mono<String> saveLessonVideo(Long lessonId, FilePart filePart, String oldPath) {
+        // Content-Length ma'lum bo'lsa — bitta baytni ham yozmasdan rad etamiz.
+        long declared = filePart.headers().getContentLength();
+        if (declared > MAX_VIDEO_BYTES) {
+            return Mono.error(new PayloadTooLargeException(VIDEO_TOO_LARGE_MESSAGE));
+        }
         deleteIfExists(oldPath);
         String ext = getExtension(filePart.filename());
         String uid = UUID.randomUUID().toString().substring(0, 8);
         String fileName = "video_" + lessonId + "_" + uid + ext;
         Path dest = basePath.resolve("lessons").resolve(String.valueOf(lessonId)).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return saveFile(filePart, dest)
+                .then(enforceMaxSize(dest, MAX_VIDEO_BYTES, VIDEO_TOO_LARGE_MESSAGE))
+                .thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+    }
+
+    /** Absolute path — ffprobe kabi tashqi vositalar uchun. DB'dagi relative path'dan yasaydi. */
+    public Path resolveStoredPath(String dbPath) {
+        if (dbPath == null || dbPath.isBlank()) return null;
+        Path path = Paths.get(dbPath);
+        Path resolved = (path.isAbsolute() ? path : basePath.resolve(dbPath)).normalize();
+        return resolved.startsWith(basePath) ? resolved : null;
     }
 
     /** Dars audio kitobini saqlash. Path: lessons/{lessonId}/audio_{uid}.{ext} */
@@ -461,6 +486,23 @@ public class FileStorageService {
             } catch (IOException ignored) {
             }
         }
+    }
+
+    /**
+     * Fayl diskka yozilgandan keyin hajmni tekshiradi. Chegaradan oshsa —
+     * yarim yozilgan faylni o'chirib, 413 xatosini qaytaradi.
+     * Content-Length yuborilmagan (chunked) yuklashlar uchun yagona ishonchli himoya.
+     */
+    private Mono<Void> enforceMaxSize(Path dest, long maxBytes, String message) {
+        return Mono.fromCallable(() -> {
+                    if (Files.size(dest) > maxBytes) {
+                        Files.deleteIfExists(dest);
+                        throw new PayloadTooLargeException(message);
+                    }
+                    return true;
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .then();
     }
 
     private Mono<Void> saveFile(FilePart filePart, Path dest) {

@@ -52,6 +52,7 @@ public class AdminController {
     private final CourseTeacherRepository courseTeacherRepository;
     private final UserCourseRepository userCourseRepository;
     private final FileStorageService fileStorageService;
+    private final uz.sevenEdu.teacherBot.common.service.MediaProbeService mediaProbeService;
     private final NewsRepository newsRepository;
     private final SaleRecordRepository saleRecordRepository;
     private final uz.sevenEdu.teacherBot.payment.repository.PaymentMethodRepository paymentMethodRepository;
@@ -709,7 +710,14 @@ public class AdminController {
         );
     }
 
-    /** Dars videosini yuklash (URL emas, fayl orqali). */
+    /**
+     * Dars videosini yuklash (URL emas, fayl orqali). Maks. hajm 2 GB.
+     *
+     * <p>Davomiylik avtomatik aniqlanadi: fayl saqlangandan keyin ffprobe bilan
+     * o'lchanadi va {@code durationSec} shu qiymat bilan yangilanadi. ffprobe
+     * mavjud bo'lmasa — brauzerda aniqlangan qiymat o'zgarishsiz qoladi,
+     * ya'ni yuklash hech qachon shu sabab uzilmaydi.
+     */
     @PostMapping(value = "/lessons/{id}/upload-video", consumes = "multipart/form-data")
     public Mono<ApiResponse<Lesson>> uploadLessonVideo(Authentication auth, @PathVariable Long id,
                                                        @RequestPart("file") FilePart file) {
@@ -719,7 +727,10 @@ public class AdminController {
                 .flatMap(lesson -> fileStorageService.saveLessonVideo(id, file, lesson.getVideoUrl())
                     .flatMap(path -> {
                         lesson.setVideoUrl(path);
-                        return lessonRepository.save(lesson);
+                        return mediaProbeService
+                                .probeDurationSec(fileStorageService.resolveStoredPath(path))
+                                .doOnNext(lesson::setDurationSec)
+                                .then(Mono.defer(() -> lessonRepository.save(lesson)));
                     }))
                 .map(ApiResponse::ok)
         );

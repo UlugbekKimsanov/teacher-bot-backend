@@ -23,6 +23,8 @@ app:
     secret: ${JWT_SECRET:7EDUTeacherBotSecretKeyForJWTTokenGeneration2024VeryLongSecretKey}
   storage:
     base-path: ${STORAGE_PATH:/root/storage}
+  media:
+    ffprobe-path: ${FFPROBE_PATH:ffprobe}
   firebase:
     service-account-path: ${FIREBASE_CREDENTIALS:}
   eskiz:

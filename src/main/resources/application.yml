@@ -1,6 +1,12 @@
 spring:
   application:
     name: teacher-bot
+  webflux:
+    multipart:
+      # Dars videosi uchun 2 GB. FileStorageService.MAX_VIDEO_BYTES va
+      # nginx client_max_body_size bilan bir xil bo'lishi kerak.
+      max-disk-usage-per-part: 2GB
+      max-in-memory-size: 1MB
   cache:
     type: caffeine
     caffeine:
@@ -67,6 +73,10 @@ app:
     secret: 7EDUTeacherBotSecretKeyForJWTTokenGeneration2024VeryLongSecretKey
   storage:
     base-path: ./storage
+  media:
+    # Video davomiyligini avtomatik aniqlash uchun ffprobe. Topilmasa aniqlash
+    # o'tkazib yuboriladi (yuklash xato bermaydi) — brauzerdagi qiymat qoladi.
+    ffprobe-path: ${FFPROBE_PATH:ffprobe}
   firebase:
     # Firebase service account JSON fayl yo'li. Bo'sh bo'lsa push (FCM) o'chiq bo'ladi.
     service-account-path: ${FIREBASE_CREDENTIALS:}
