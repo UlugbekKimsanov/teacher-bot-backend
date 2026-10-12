@@ -66,7 +66,7 @@ public class CheckoutService {
                 + "&merchant_id=" + clickProperties.getMerchantId()
                 + "&amount=" + amountSum
                 + "&transaction_param=" + encode(merchantTransId)
-                + "&return_url=" + encode("https://7edu.uz/payment/success");
+                + "&return_url=" + encode("https://oazisedu.uz");
     }
 
     /**

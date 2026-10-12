@@ -210,19 +210,31 @@ public class BooksService {
     }
 
     public Mono<Void> addToLibrary(Long userId, Long bookId) {
-        return userBookRepository.findByUserIdAndBookId(userId, bookId)
-                .flatMap(existing -> {
-                    return userBookRepository.setActive(userId, bookId, true).then(Mono.just(existing));
-                })
-                .switchIfEmpty(Mono.defer(() ->
-                    userBookRepository.save(UserBook.builder()
-                            .userId(userId).bookId(bookId)
-                            .paymentMethod("free")
-                            .isActive(true)
-                            .purchasedAt(LocalDateTime.now())
-                            .build())
-                ))
-                .then();
+        return booksRepository.findById(bookId)
+                .switchIfEmpty(Mono.error(new RuntimeException("Kitob topilmadi")))
+                .flatMap(book -> userBookRepository.findByUserIdAndBookId(userId, bookId)
+                        .map(java.util.Optional::of)
+                        .defaultIfEmpty(java.util.Optional.empty())
+                        .flatMap(existingOpt -> {
+                            boolean free = book.getIsFree() != null && book.getIsFree();
+                            // Haqiqiy xarid — to'lov tizimi orqali yozilgan yozuv
+                            boolean paid = existingOpt.isPresent()
+                                    && existingOpt.get().getPaymentMethod() != null
+                                    && !"free".equalsIgnoreCase(existingOpt.get().getPaymentMethod());
+                            if (!free && !paid) {
+                                return Mono.error(new uz.sevenEdu.teacherBot.common.exception.ForbiddenException(
+                                        "Pullik kitob — avval to'lov qilish talab etiladi"));
+                            }
+                            if (existingOpt.isPresent()) {
+                                return userBookRepository.setActive(userId, bookId, true);
+                            }
+                            return userBookRepository.save(UserBook.builder()
+                                    .userId(userId).bookId(bookId)
+                                    .paymentMethod("free")
+                                    .isActive(true)
+                                    .purchasedAt(LocalDateTime.now())
+                                    .build()).then();
+                        }));
     }
 
     public Mono<Void> removeFromLibrary(Long userId, Long bookId) {
@@ -358,6 +370,7 @@ public class BooksService {
     }
 
     private BooksDto mapToDto(Books entity, boolean isPurchased, boolean inLibrary, int readPage, int totalPages) {
+        boolean isFree = entity.getIsFree() != null && entity.getIsFree();
         List<Integer> coverColors = new ArrayList<>();
         if (entity.getCoverColor1() != null) coverColors.add(entity.getCoverColor1());
         if (entity.getCoverColor2() != null) coverColors.add(entity.getCoverColor2());
@@ -382,7 +395,7 @@ public class BooksService {
                 .description(entity.getDescription())
                 .price(entity.getPrice())
                 .priceLabel(entity.getPriceLabel())
-                .isFree(entity.getIsFree() != null && entity.getIsFree())
+                .isFree(isFree)
                 .emoji(entity.getEmoji() != null ? entity.getEmoji() : "\uD83D\uDCDA")
                 .coverColors(coverColors)
                 .pages(entity.getPages())
@@ -403,7 +416,10 @@ public class BooksService {
                 .totalPages(totalPages)
                 .imageId(entity.getImageId())
                 .fileId(entity.getFileId())
-                .fileUrl(fileStorageService.toPublicUrl(entity.getFilePath()))
+                // Pullik kitob PDF'i faqat bepul yoki sotib olingan bo'lsa qaytadi
+                .fileUrl(isFree || isPurchased
+                        ? fileStorageService.toPublicUrl(entity.getFilePath())
+                        : null)
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();

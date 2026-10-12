@@ -110,7 +110,8 @@ public class ChatService {
     // ═══════════════════════════════════════════════════════
 
     public Flux<ChatMessageDto> getGroupHistory(Long courseId) {
-        return courseChatMessageRepository.findByCourseId(courseId)
+        // Faqat oxirgi 100 ta xabar — WS ulanishida butun tarix yuborilmaydi
+        return courseChatMessageRepository.findLast100ByCourseId(courseId)
                 .map(this::toGroupDto);
     }
 

@@ -95,8 +95,8 @@ public class TelegramBotService {
     public Mono<Void> notifySubscribers(String text) {
         return Flux.concat(
                         subscriberRepository.findByActiveTrue().map(TelegramSubscriber::getChatId),
-                        userRepository.findAll()
-                                .filter(user -> user.getTelegramChatId() != null)
+                        // Faqat telegram ulangan userlar — full-table scan emas
+                        userRepository.findAllWithTelegramChatId()
                                 .map(BaseUser::getTelegramChatId)
                 )
                 .distinct()

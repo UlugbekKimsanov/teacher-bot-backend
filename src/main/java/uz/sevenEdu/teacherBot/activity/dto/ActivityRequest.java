@@ -13,6 +13,6 @@ public class ActivityRequest {
     private MeasureType measureType;
     @NotNull
     private Long value;
-    @NotNull
+    /** Clientdan kelgani e'tiborga olinmaydi — server tokendan to'ldiradi. */
     private Long studentId;
 }

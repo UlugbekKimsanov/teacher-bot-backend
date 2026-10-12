@@ -89,7 +89,13 @@ public class CourseServiceImpl implements CourseService {
                     }
                     return userCourseRepository.existsByUserIdAndCourseId(userId, courseId)
                             .flatMap(exists -> {
+                                // Mavjud yozuv (masalan admin biriktirgan) — odatdagidek davom etadi
                                 if (exists) return Mono.just(course);
+                                // Premium kursga faqat to'lov orqali yozilish mumkin
+                                if (Boolean.TRUE.equals(course.getIsPremium())) {
+                                    return Mono.error(new uz.sevenEdu.teacherBot.common.exception.ForbiddenException(
+                                            "Premium kurs uchun to'lov talab qilinadi"));
+                                }
                                 UserCourse uc = UserCourse.builder()
                                         .userId(userId).courseId(courseId)
                                         .progress(BigDecimal.ZERO).createdAt(LocalDateTime.now()).build();

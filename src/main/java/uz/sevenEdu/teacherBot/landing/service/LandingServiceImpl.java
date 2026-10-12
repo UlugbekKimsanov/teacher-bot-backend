@@ -1,6 +1,7 @@
 package uz.sevenEdu.teacherBot.landing.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -19,6 +20,7 @@ import uz.sevenEdu.teacherBot.telegram.TelegramBotService;
 
 import java.time.LocalDateTime;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class LandingServiceImpl implements LandingService {
@@ -40,7 +42,10 @@ public class LandingServiceImpl implements LandingService {
                 .updatedAt(LocalDateTime.now())
                 .build();
         return leadRepository.save(lead)
-                .flatMap(saved -> telegramBotService.notifySubscribers(newLeadMessage(saved)).thenReturn(saved))
+                // Telegram yuborish fon'da — lead javobini bloklamaydi
+                .doOnNext(saved -> telegramBotService.notifySubscribers(newLeadMessage(saved))
+                        .subscribe(null, e -> log.warn("Lead #{} Telegram xabarida xato: {}",
+                                saved.getId(), e.getMessage())))
                 .map(this::toDto);
     }
 

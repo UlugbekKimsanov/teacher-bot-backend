@@ -27,7 +27,13 @@ public class WebConfig implements WebFluxConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/files/**")
-                .allowedOriginPatterns("*")
+                .allowedOrigins(
+                        "https://oazisedu.uz",
+                        "https://admin.oazisedu.uz",
+                        "http://localhost:3000",
+                        "http://localhost:3100",
+                        "http://localhost:5173")
+                .allowedOriginPatterns("https://*.trycloudflare.com")
                 .allowedMethods("GET")
                 .allowedHeaders("*");
     }

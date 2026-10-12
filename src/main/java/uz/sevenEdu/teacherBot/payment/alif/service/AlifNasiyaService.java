@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.books.service.BooksService;
 import uz.sevenEdu.teacherBot.payment.alif.config.AlifNasiyaProperties;
+import uz.sevenEdu.teacherBot.payment.common.BookPaymentAmountService;
 import uz.sevenEdu.teacherBot.payment.alif.dto.AlifAccountVerifyRequest;
 import uz.sevenEdu.teacherBot.payment.alif.dto.AlifAccountVerifyResponse;
 import uz.sevenEdu.teacherBot.payment.alif.dto.AlifWebhookRequest;
@@ -22,6 +23,7 @@ public class AlifNasiyaService {
     private final AlifTransactionRepository repository;
     private final AlifNasiyaProperties properties;
     private final BooksService booksService;
+    private final BookPaymentAmountService bookPaymentAmountService;
 
     /**
      * bePaid chaqiradi — mijoz akkauntini tekshirish.
@@ -40,24 +42,33 @@ public class AlifNasiyaService {
             return Mono.just(AlifAccountVerifyResponse.error(241, "Miqdor noto'g'ri"));
         }
 
-        // Tranzaksiya yaratish (PENDING)
-        return repository.findByMerchantTransId(merchantTransId)
-                .flatMap(existing -> Mono.just(AlifAccountVerifyResponse.ok(
-                        existing.getId().toString(), req.getAmount(), req.getCurrency())))
-                .switchIfEmpty(Mono.defer(() -> {
-                    AlifTransaction tx = AlifTransaction.builder()
-                            .bepaidUid(req.getId())
-                            .merchantTransId(merchantTransId)
-                            .amount(BigDecimal.valueOf(req.getAmount()))
-                            .currency(req.getCurrency() != null ? req.getCurrency() : "UZS")
-                            .status(AlifTransactionStatus.PENDING)
-                            .createdAt(LocalDateTime.now())
-                            .updatedAt(LocalDateTime.now())
-                            .build();
-                    return repository.save(tx)
-                            .map(saved -> AlifAccountVerifyResponse.ok(
-                                    saved.getId().toString(), req.getAmount(), saved.getCurrency()));
-                }));
+        // Kelgan summa (so'm) kitobning kutilgan narxi bilan qat'iy solishtiriladi
+        return bookPaymentAmountService.expectedAmountSum(merchantTransId)
+                .flatMap(expected -> {
+                    if (!expected.equals(req.getAmount())) {
+                        return Mono.just(AlifAccountVerifyResponse.error(241,
+                                "Miqdor kitob narxiga mos emas"));
+                    }
+                    // Tranzaksiya yaratish (PENDING)
+                    return repository.findByMerchantTransId(merchantTransId)
+                            .flatMap(existing -> Mono.just(AlifAccountVerifyResponse.ok(
+                                    existing.getId().toString(), req.getAmount(), req.getCurrency())))
+                            .switchIfEmpty(Mono.defer(() -> {
+                                AlifTransaction tx = AlifTransaction.builder()
+                                        .bepaidUid(req.getId())
+                                        .merchantTransId(merchantTransId)
+                                        .amount(BigDecimal.valueOf(req.getAmount()))
+                                        .currency(req.getCurrency() != null ? req.getCurrency() : "UZS")
+                                        .status(AlifTransactionStatus.PENDING)
+                                        .createdAt(LocalDateTime.now())
+                                        .updatedAt(LocalDateTime.now())
+                                        .build();
+                                return repository.save(tx)
+                                        .map(saved -> AlifAccountVerifyResponse.ok(
+                                                saved.getId().toString(), req.getAmount(), saved.getCurrency()));
+                            }));
+                })
+                .switchIfEmpty(Mono.just(AlifAccountVerifyResponse.error(5, "Kitob topilmadi")));
     }
 
     /**
@@ -92,7 +103,22 @@ public class AlifNasiyaService {
                     return repository.save(tx)
                             .flatMap(saved -> {
                                 if (saved.getStatus() == AlifTransactionStatus.SUCCESSFUL) {
-                                    return onPaymentSuccess(saved.getMerchantTransId());
+                                    // Faollashtirishdan oldin summa (so'm) kutilgan kitob narxi
+                                    // bilan qat'iy solishtiriladi: webhook'dagi amount, u bo'lmasa
+                                    // tranzaksiyada saqlangan summa
+                                    BigDecimal paid = req.getAmount() != null
+                                            ? BigDecimal.valueOf(req.getAmount())
+                                            : saved.getAmount();
+                                    return bookPaymentAmountService
+                                            .expectedAmountSum(saved.getMerchantTransId())
+                                            .flatMap(expected -> {
+                                                if (paid == null
+                                                        || BigDecimal.valueOf(expected).compareTo(paid) != 0) {
+                                                    // Summa mos emas — kitob faollashtirilmaydi
+                                                    return Mono.<Void>empty();
+                                                }
+                                                return onPaymentSuccess(saved.getMerchantTransId());
+                                            });
                                 }
                                 return Mono.empty();
                             });

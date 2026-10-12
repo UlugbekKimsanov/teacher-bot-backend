@@ -72,7 +72,15 @@ public class UserController {
 
     @GetMapping("/avatar/{filename}")
     public Mono<org.springframework.core.io.Resource> getAvatar(@PathVariable String filename) {
-        Path path = Paths.get("./storage/avatars").resolve(filename);
+        // Path traversal himoyasi: '..', '/' va '\' taqiqlanadi
+        if (filename.contains("..") || filename.contains("/") || filename.contains("\\")) {
+            return Mono.error(new uz.sevenEdu.teacherBot.common.exception.NotFoundException("Fayl topilmadi"));
+        }
+        Path base = Paths.get("./storage/avatars").toAbsolutePath().normalize();
+        Path path = base.resolve(filename).normalize();
+        if (!path.startsWith(base)) {
+            return Mono.error(new uz.sevenEdu.teacherBot.common.exception.NotFoundException("Fayl topilmadi"));
+        }
         return Mono.just(new org.springframework.core.io.FileSystemResource(path));
     }
 

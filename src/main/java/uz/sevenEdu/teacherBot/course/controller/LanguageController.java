@@ -3,10 +3,12 @@ package uz.sevenEdu.teacherBot.course.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.common.enums.LanguageFileType;
 import uz.sevenEdu.teacherBot.common.response.ApiResponse;
+import uz.sevenEdu.teacherBot.common.security.RoleGuard;
 import uz.sevenEdu.teacherBot.course.entity.Language;
 import uz.sevenEdu.teacherBot.course.service.LanguageService;
 
@@ -18,11 +20,14 @@ import java.util.List;
 public class LanguageController {
 
     private final LanguageService languageService;
+    private final RoleGuard roleGuard;
 
     @PostMapping
     public Mono<ApiResponse<Language>> create(@RequestParam String name,
-                                              @RequestParam(required = false) String description) {
-        return languageService.create(name, description).map(ApiResponse::ok);
+                                              @RequestParam(required = false) String description,
+                                              Authentication auth) {
+        return roleGuard.requireAdmin(auth)
+                .then(languageService.create(name, description).map(ApiResponse::ok));
     }
 
     @GetMapping
@@ -38,7 +43,9 @@ public class LanguageController {
     @PostMapping(value = "/{id}/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Mono<ApiResponse<Language>> uploadImage(@PathVariable Long id,
                                                    @RequestParam LanguageFileType fileType,
-                                                   @RequestPart("file") FilePart file) {
-        return languageService.uploadImage(id, fileType, file).map(ApiResponse::ok);
+                                                   @RequestPart("file") FilePart file,
+                                                   Authentication auth) {
+        return roleGuard.requireAdmin(auth)
+                .then(languageService.uploadImage(id, fileType, file).map(ApiResponse::ok));
     }
 }

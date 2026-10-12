@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.books.service.BooksService;
+import uz.sevenEdu.teacherBot.payment.common.BookPaymentAmountService;
 import uz.sevenEdu.teacherBot.payment.paynet.config.PaynetProperties;
 import uz.sevenEdu.teacherBot.payment.paynet.dto.PaynetRequest;
 import uz.sevenEdu.teacherBot.payment.paynet.dto.PaynetResponse;
@@ -16,6 +17,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * Paynet JSON-RPC 2.0 protokoli bo'yicha to'lov qabul qilish.
@@ -29,6 +31,7 @@ public class PaynetService {
     private final PaynetTransactionRepository paynetTransactionRepository;
     private final PaynetProperties paynetProperties;
     private final BooksService booksService;
+    private final BookPaymentAmountService bookPaymentAmountService;
 
     private static final DateTimeFormatter DATE_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -84,14 +87,16 @@ public class PaynetService {
                         return Mono.just(PaynetResponse.error(
                                 req.getId(), ERR_ALREADY_CANCELLED, "Tranzaksiya bekor qilingan"));
                     }
-                    // CREATED holatida — qayta perform
-                    existing.setStatus(PaynetTransactionStatus.SUCCESSFUL);
-                    existing.setUpdatedAt(LocalDateTime.now());
-                    return paynetTransactionRepository.save(existing)
-                            .flatMap(saved -> onPaymentSuccess(saved.getMerchantTransId())
-                                    .thenReturn(PaynetResponse.ok(req.getId(), txResult(saved, "SUCCESS"))));
+                    // CREATED holatida — perform oldidan summa tekshiruvi
+                    return withValidAmount(req, merchantTransId, amount, () -> {
+                        existing.setStatus(PaynetTransactionStatus.SUCCESSFUL);
+                        existing.setUpdatedAt(LocalDateTime.now());
+                        return paynetTransactionRepository.save(existing)
+                                .flatMap(saved -> onPaymentSuccess(saved.getMerchantTransId())
+                                        .thenReturn(PaynetResponse.ok(req.getId(), txResult(saved, "SUCCESS"))));
+                    });
                 })
-                .switchIfEmpty(Mono.defer(() -> {
+                .switchIfEmpty(Mono.defer(() -> withValidAmount(req, merchantTransId, amount, () -> {
                     PaynetTransaction tx = PaynetTransaction.builder()
                             .transactionId(transactionId)
                             .merchantTransId(merchantTransId)
@@ -103,7 +108,7 @@ public class PaynetService {
                     return paynetTransactionRepository.save(tx)
                             .flatMap(saved -> onPaymentSuccess(saved.getMerchantTransId())
                                     .thenReturn(PaynetResponse.ok(req.getId(), txResult(saved, "SUCCESS"))));
-                }));
+                })));
     }
 
     // ── CheckTransaction ────────────────────────────────────────────
@@ -161,6 +166,21 @@ public class PaynetService {
     }
 
     // ── Yordamchi metodlar ──────────────────────────────────────────
+
+    /**
+     * Kelgan summani (tiyin) kitobning kutilgan narxi bilan qat'iy solishtiradi;
+     * mos kelsa davomini bajaradi, aks holda protokol xatosini qaytaradi.
+     */
+    private Mono<PaynetResponse> withValidAmount(PaynetRequest req, String merchantTransId,
+                                                 Long amount, Supplier<Mono<PaynetResponse>> action) {
+        return bookPaymentAmountService.expectedAmountTiyin(merchantTransId)
+                .flatMap(expected -> expected.equals(amount)
+                        ? action.get()
+                        : Mono.just(PaynetResponse.error(
+                                req.getId(), ERR_INVALID_AMOUNT, "Miqdor kitob narxiga mos emas")))
+                .switchIfEmpty(Mono.just(PaynetResponse.error(
+                        req.getId(), ERR_INVALID_ACCOUNT, "Kitob topilmadi")));
+    }
 
     private Mono<Void> onPaymentSuccess(String merchantTransId) {
         if (merchantTransId == null) return Mono.empty();

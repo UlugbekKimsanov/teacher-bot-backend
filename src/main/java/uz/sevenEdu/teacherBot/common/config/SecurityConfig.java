@@ -40,7 +40,16 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
 
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of("*"));
+        // Faqat ishonchli originlar (wildcard + credentials kombinatsiyasi xavfli)
+        config.setAllowedOrigins(List.of(
+                "https://oazisedu.uz",
+                "https://admin.oazisedu.uz",
+                "http://localhost:3000",
+                "http://localhost:3100",
+                "http://localhost:5173"
+        ));
+        // Dev tunnel (cloudflare) — pattern sifatida
+        config.setAllowedOriginPatterns(List.of("https://*.trycloudflare.com"));
         config.setAllowedMethods(List.of("*"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

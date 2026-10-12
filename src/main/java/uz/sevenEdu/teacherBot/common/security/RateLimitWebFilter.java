@@ -78,7 +78,10 @@ public class RateLimitWebFilter implements WebFilter {
     private String clientIp(ServerWebExchange exchange) {
         String xff = exchange.getRequest().getHeaders().getFirst("X-Forwarded-For");
         if (xff != null && !xff.isBlank()) {
-            return xff.split(",")[0].trim();
+            // OXIRGI element — ishonchli proxy (nginx) haqiqiy client IP'ni
+            // ro'yxat oxiriga qo'shadi; birinchisini client o'zi soxtalashi mumkin
+            String[] parts = xff.split(",");
+            return parts[parts.length - 1].trim();
         }
         return exchange.getRequest().getRemoteAddress() != null
                 ? exchange.getRequest().getRemoteAddress().getAddress().getHostAddress()

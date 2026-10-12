@@ -14,6 +14,16 @@ public interface CourseChatMessageRepository extends ReactiveCrudRepository<Cour
     @Query("SELECT * FROM course_chat_messages WHERE course_id = :courseId ORDER BY created_at ASC")
     Flux<CourseChatMessage> findByCourseId(Long courseId);
 
+    /** Oxirgi 100 ta xabar — xronologik tartibda (katta tarix RAMga olinmasin) */
+    @Query("""
+            SELECT * FROM (
+                SELECT * FROM course_chat_messages
+                WHERE course_id = :courseId
+                ORDER BY created_at DESC LIMIT 100
+            ) t ORDER BY created_at ASC
+            """)
+    Flux<CourseChatMessage> findLast100ByCourseId(Long courseId);
+
     @Query("SELECT * FROM course_chat_messages WHERE media_path IS NOT NULL AND created_at < :before")
     Flux<CourseChatMessage> findExpiredMedia(LocalDateTime before);
 

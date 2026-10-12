@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.books.service.BooksService;
+import uz.sevenEdu.teacherBot.payment.common.BookPaymentAmountService;
 import uz.sevenEdu.teacherBot.payment.payme.config.PaymeProperties;
 import uz.sevenEdu.teacherBot.payment.payme.dto.PaymeRequest;
 import uz.sevenEdu.teacherBot.payment.payme.dto.PaymeResponse;
@@ -31,6 +32,7 @@ public class PaymeService {
     private final PaymeTransactionRepository paymeTransactionRepository;
     private final PaymeProperties paymeProperties;
     private final BooksService booksService;
+    private final BookPaymentAmountService bookPaymentAmountService;
 
     // ── Payme xato kodlari ──────────────────────────────────────────
     private static final int ERR_INSUFFICIENT_PRIVILEGE = -32504;
@@ -73,9 +75,19 @@ public class PaymeService {
                     req.getId(), ERR_INVALID_AMOUNT, "Miqdor noto'g'ri"));
         }
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("allow", true);
-        return Mono.just(PaymeResponse.ok(req.getId(), result));
+        // Kelgan summa (tiyin) kitobning kutilgan narxi bilan qat'iy solishtiriladi
+        return bookPaymentAmountService.expectedAmountTiyin(merchantTransId)
+                .flatMap(expected -> {
+                    if (!expected.equals(amount)) {
+                        return Mono.just(PaymeResponse.error(
+                                req.getId(), ERR_INVALID_AMOUNT, "Miqdor kitob narxiga mos emas"));
+                    }
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("allow", true);
+                    return Mono.just(PaymeResponse.ok(req.getId(), result));
+                })
+                .switchIfEmpty(Mono.just(PaymeResponse.error(
+                        req.getId(), ERR_INVALID_ACCOUNT, "Kitob topilmadi")));
     }
 
     // ── CreateTransaction ───────────────────────────────────────────
@@ -103,26 +115,35 @@ public class PaymeService {
                     result.put("state", stateOf(existing.getStatus()));
                     return Mono.just(PaymeResponse.ok(req.getId(), result));
                 })
-                .switchIfEmpty(Mono.defer(() -> {
-                    // Yangi tranzaksiya yaratish
-                    PaymeTransaction tx = PaymeTransaction.builder()
-                            .paymeId(paymeId)
-                            .merchantTransId(merchantTransId)
-                            .amount(BigDecimal.valueOf(amount))
-                            .status(PaymeTransactionStatus.CREATED)
-                            .createTime(createTime)
-                            .createdAt(LocalDateTime.now())
-                            .updatedAt(LocalDateTime.now())
-                            .build();
-                    return paymeTransactionRepository.save(tx)
-                            .map(saved -> {
-                                Map<String, Object> result = new HashMap<>();
-                                result.put("create_time", saved.getCreateTime());
-                                result.put("transaction", saved.getId().toString());
-                                result.put("state", 1); // CREATED
-                                return PaymeResponse.ok(req.getId(), result);
-                            });
-                }));
+                .switchIfEmpty(Mono.defer(() ->
+                        // Yangi tranzaksiya — avval summa (tiyin) kutilgan kitob narxi bilan solishtiriladi
+                        bookPaymentAmountService.expectedAmountTiyin(merchantTransId)
+                                .flatMap(expected -> {
+                                    if (!expected.equals(amount)) {
+                                        return Mono.just(PaymeResponse.error(
+                                                req.getId(), ERR_INVALID_AMOUNT, "Miqdor kitob narxiga mos emas"));
+                                    }
+                                    PaymeTransaction tx = PaymeTransaction.builder()
+                                            .paymeId(paymeId)
+                                            .merchantTransId(merchantTransId)
+                                            .amount(BigDecimal.valueOf(amount))
+                                            .status(PaymeTransactionStatus.CREATED)
+                                            .createTime(createTime)
+                                            .createdAt(LocalDateTime.now())
+                                            .updatedAt(LocalDateTime.now())
+                                            .build();
+                                    return paymeTransactionRepository.save(tx)
+                                            .map(saved -> {
+                                                Map<String, Object> result = new HashMap<>();
+                                                result.put("create_time", saved.getCreateTime());
+                                                result.put("transaction", saved.getId().toString());
+                                                result.put("state", 1); // CREATED
+                                                return PaymeResponse.ok(req.getId(), result);
+                                            });
+                                })
+                                .switchIfEmpty(Mono.just(PaymeResponse.error(
+                                        req.getId(), ERR_INVALID_ACCOUNT, "Kitob topilmadi")))
+                ));
     }
 
     // ── PerformTransaction ──────────────────────────────────────────

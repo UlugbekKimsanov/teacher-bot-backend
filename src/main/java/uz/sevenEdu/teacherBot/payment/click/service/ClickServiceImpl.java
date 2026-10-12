@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.books.service.BooksService;
+import uz.sevenEdu.teacherBot.payment.common.BookPaymentAmountService;
 import uz.sevenEdu.teacherBot.payment.order.repository.PaymentOrderRepository;
 import uz.sevenEdu.teacherBot.payment.click.config.ClickProperties;
 import uz.sevenEdu.teacherBot.payment.click.dto.ClickCompleteRequestDto;
@@ -28,6 +29,7 @@ public class ClickServiceImpl implements ClickService {
     private final ClickTransactionRepository clickTransactionRepository;
     private final BooksService booksService;
     private final PaymentOrderRepository paymentOrderRepository;
+    private final BookPaymentAmountService bookPaymentAmountService;
 
     @Override
     public Mono<ClickResponseDto> prepare(ClickPrepareRequestDto request) {
@@ -46,10 +48,17 @@ public class ClickServiceImpl implements ClickService {
             return Mono.just(errorResponse(request.getClickTransId(), request.getMerchantTransId(), null, ClickError.SIGN_CHECK_FAILED));
         }
 
-        // 3. merchant_trans_id (order ID) mavjudligini va holatini tekshirish
+        String merchantTransId = request.getMerchantTransId();
+
+        // 3a. Kitob to'lovi: merchant_trans_id = "book_{userId}_{bookId}"
+        if (merchantTransId != null && merchantTransId.startsWith("book_")) {
+            return prepareBookPayment(request);
+        }
+
+        // 3b. Oddiy buyurtma: merchant_trans_id = order ID (raqam)
         Long orderId;
         try {
-            orderId = Long.parseLong(request.getMerchantTransId());
+            orderId = Long.parseLong(merchantTransId);
         } catch (NumberFormatException e) {
             return Mono.just(errorResponse(request.getClickTransId(), request.getMerchantTransId(), null, ClickError.USER_NOT_FOUND));
         }
@@ -66,46 +75,71 @@ public class ClickServiceImpl implements ClickService {
                     return Mono.just(errorResponse(request.getClickTransId(), request.getMerchantTransId(), null, ClickError.INCORRECT_AMOUNT));
                 }
 
-                // 6. Mavjud click tranzaksiyani tekshirish (qayta prepare kelsa)
-                return clickTransactionRepository.findByMerchantTransId(request.getMerchantTransId())
-                    .flatMap(existing -> {
-                        if (existing.getStatus() == ClickTransactionStatus.PAID) {
-                            return Mono.just(errorResponse(request.getClickTransId(), request.getMerchantTransId(), existing.getId(), ClickError.ALREADY_PAID));
-                        }
-                        return Mono.just(ClickResponseDto.builder()
-                            .clickTransId(request.getClickTransId())
-                            .merchantTransId(request.getMerchantTransId())
-                            .merchantPrepareId(existing.getId())
-                            .merchantConfirmId(existing.getId())
-                            .error(ClickError.SUCCESS.getCode())
-                            .errorNote(ClickError.SUCCESS.getMessage())
-                            .build());
-                    })
-                    .switchIfEmpty(Mono.defer(() -> {
-                        // 7. Yangi click tranzaksiya saqlash
-                        ClickTransaction transaction = ClickTransaction.builder()
-                            .clickTransId(request.getClickTransId())
-                            .clickPaydocId(request.getClickPaydocId())
-                            .merchantTransId(request.getMerchantTransId())
-                            .amount(request.getAmount())
-                            .status(ClickTransactionStatus.PREPARED)
-                            .signTime(request.getSignTime())
-                            .createdAt(LocalDateTime.now())
-                            .updatedAt(LocalDateTime.now())
-                            .build();
-
-                        return clickTransactionRepository.save(transaction)
-                            .map(saved -> ClickResponseDto.builder()
-                                .clickTransId(request.getClickTransId())
-                                .merchantTransId(request.getMerchantTransId())
-                                .merchantPrepareId(saved.getId())
-                                .merchantConfirmId(saved.getId())
-                                .error(ClickError.SUCCESS.getCode())
-                                .errorNote(ClickError.SUCCESS.getMessage())
-                                .build());
-                    }));
+                return upsertPreparedTransaction(request);
             })
             .switchIfEmpty(Mono.just(errorResponse(request.getClickTransId(), request.getMerchantTransId(), null, ClickError.USER_NOT_FOUND)));
+    }
+
+    /**
+     * Kitob to'lovi uchun prepare: kelgan summa (so'm) kitobning kutilgan
+     * narxi bilan qat'iy solishtiriladi, mos kelsa tranzaksiya saqlanadi.
+     */
+    private Mono<ClickResponseDto> prepareBookPayment(ClickPrepareRequestDto request) {
+        return bookPaymentAmountService.expectedAmountSum(request.getMerchantTransId())
+            .flatMap(expectedSum -> {
+                if (request.getAmount() == null
+                        || BigDecimal.valueOf(expectedSum).compareTo(request.getAmount()) != 0) {
+                    return Mono.just(errorResponse(request.getClickTransId(), request.getMerchantTransId(), null, ClickError.INCORRECT_AMOUNT));
+                }
+                return upsertPreparedTransaction(request);
+            })
+            // Kitob topilmadi yoki merchant_trans_id formati noto'g'ri
+            .switchIfEmpty(Mono.just(errorResponse(request.getClickTransId(), request.getMerchantTransId(), null, ClickError.USER_NOT_FOUND)));
+    }
+
+    /**
+     * Mavjud click tranzaksiyani qaytarish (qayta prepare kelsa) yoki
+     * yangi PREPARED tranzaksiya saqlash.
+     */
+    private Mono<ClickResponseDto> upsertPreparedTransaction(ClickPrepareRequestDto request) {
+        // 6. Mavjud click tranzaksiyani tekshirish (qayta prepare kelsa)
+        return clickTransactionRepository.findByMerchantTransId(request.getMerchantTransId())
+            .flatMap(existing -> {
+                if (existing.getStatus() == ClickTransactionStatus.PAID) {
+                    return Mono.just(errorResponse(request.getClickTransId(), request.getMerchantTransId(), existing.getId(), ClickError.ALREADY_PAID));
+                }
+                return Mono.just(ClickResponseDto.builder()
+                    .clickTransId(request.getClickTransId())
+                    .merchantTransId(request.getMerchantTransId())
+                    .merchantPrepareId(existing.getId())
+                    .merchantConfirmId(existing.getId())
+                    .error(ClickError.SUCCESS.getCode())
+                    .errorNote(ClickError.SUCCESS.getMessage())
+                    .build());
+            })
+            .switchIfEmpty(Mono.defer(() -> {
+                // 7. Yangi click tranzaksiya saqlash
+                ClickTransaction transaction = ClickTransaction.builder()
+                    .clickTransId(request.getClickTransId())
+                    .clickPaydocId(request.getClickPaydocId())
+                    .merchantTransId(request.getMerchantTransId())
+                    .amount(request.getAmount())
+                    .status(ClickTransactionStatus.PREPARED)
+                    .signTime(request.getSignTime())
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .build();
+
+                return clickTransactionRepository.save(transaction)
+                    .map(saved -> ClickResponseDto.builder()
+                        .clickTransId(request.getClickTransId())
+                        .merchantTransId(request.getMerchantTransId())
+                        .merchantPrepareId(saved.getId())
+                        .merchantConfirmId(saved.getId())
+                        .error(ClickError.SUCCESS.getCode())
+                        .errorNote(ClickError.SUCCESS.getMessage())
+                        .build());
+            }));
     }
 
     @Override

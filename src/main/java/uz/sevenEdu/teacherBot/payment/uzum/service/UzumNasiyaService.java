@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.books.service.BooksService;
+import uz.sevenEdu.teacherBot.payment.common.BookPaymentAmountService;
 import uz.sevenEdu.teacherBot.payment.uzum.config.UzumNasiyaProperties;
 import uz.sevenEdu.teacherBot.payment.uzum.dto.UzumNasiyaRequest;
 import uz.sevenEdu.teacherBot.payment.uzum.dto.UzumNasiyaResponse;
@@ -23,6 +24,7 @@ public class UzumNasiyaService {
     private final UzumNasiyaTransactionRepository repository;
     private final UzumNasiyaProperties properties;
     private final BooksService booksService;
+    private final BookPaymentAmountService bookPaymentAmountService;
 
     // ── Check ───────────────────────────────────────────────────────
     public Mono<UzumNasiyaResponse> check(UzumNasiyaRequest req) {
@@ -61,18 +63,27 @@ public class UzumNasiyaService {
                     Map<String, Object> data = txData(existing);
                     return Mono.just(UzumNasiyaResponse.ok(data));
                 })
-                .switchIfEmpty(Mono.defer(() -> {
-                    UzumNasiyaTransaction tx = UzumNasiyaTransaction.builder()
-                            .transId(transId)
-                            .merchantTransId(merchantTransId)
-                            .amount(BigDecimal.valueOf(amount))
-                            .status(UzumNasiyaTransactionStatus.PENDING)
-                            .createdAt(LocalDateTime.now())
-                            .updatedAt(LocalDateTime.now())
-                            .build();
-                    return repository.save(tx)
-                            .map(saved -> UzumNasiyaResponse.ok(txData(saved)));
-                }));
+                .switchIfEmpty(Mono.defer(() ->
+                        // Yangi tranzaksiya — avval summa (so'm) kutilgan kitob narxi bilan solishtiriladi
+                        bookPaymentAmountService.expectedAmountSum(merchantTransId)
+                                .flatMap(expected -> {
+                                    if (!expected.equals(amount)) {
+                                        return Mono.just(UzumNasiyaResponse.error(-3,
+                                                "Miqdor kitob narxiga mos emas"));
+                                    }
+                                    UzumNasiyaTransaction tx = UzumNasiyaTransaction.builder()
+                                            .transId(transId)
+                                            .merchantTransId(merchantTransId)
+                                            .amount(BigDecimal.valueOf(amount))
+                                            .status(UzumNasiyaTransactionStatus.PENDING)
+                                            .createdAt(LocalDateTime.now())
+                                            .updatedAt(LocalDateTime.now())
+                                            .build();
+                                    return repository.save(tx)
+                                            .map(saved -> UzumNasiyaResponse.ok(txData(saved)));
+                                })
+                                .switchIfEmpty(Mono.just(UzumNasiyaResponse.error(-2, "Kitob topilmadi")))
+                ));
     }
 
     // ── Confirm ─────────────────────────────────────────────────────

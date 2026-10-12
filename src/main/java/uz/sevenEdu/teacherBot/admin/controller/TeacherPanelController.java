@@ -8,6 +8,7 @@ import uz.sevenEdu.teacherBot.chat.entity.ChatMessage;
 import uz.sevenEdu.teacherBot.chat.repository.ChatMessageRepository;
 import uz.sevenEdu.teacherBot.chat.repository.CourseTeacherRepository;
 import uz.sevenEdu.teacherBot.common.response.ApiResponse;
+import uz.sevenEdu.teacherBot.common.security.RoleGuard;
 import uz.sevenEdu.teacherBot.course.entity.Course;
 import uz.sevenEdu.teacherBot.course.entity.UserCourse;
 import uz.sevenEdu.teacherBot.course.repository.CourseRepository;
@@ -36,13 +37,13 @@ public class TeacherPanelController {
     private final UserLessonRepository userLessonRepository;
     private final TeacherQuestionRepository teacherQuestionRepository;
     private final ChatMessageRepository chatMessageRepository;
+    private final RoleGuard roleGuard;
 
     // ── Dashboard ──────────────────────────────────────────────
 
     @GetMapping("/dashboard")
     public Mono<ApiResponse<Map<String, Object>>> dashboard(Authentication auth) {
-        Long teacherId = requireTeacher(auth);
-        return courseTeacherRepository.findByTeacherId(teacherId)
+        return requireTeacher(auth).flatMap(teacherId -> courseTeacherRepository.findByTeacherId(teacherId)
                 .collectList()
                 .flatMap(courseTeachers -> {
                     List<Long> courseIds = courseTeachers.stream().map(ct -> ct.getCourseId()).collect(Collectors.toList());
@@ -69,26 +70,24 @@ public class TeacherPanelController {
                         stats.put("unreadChats", 0);
                         return ApiResponse.ok(stats);
                     });
-                });
+                }));
     }
 
     // ── My Courses ─────────────────────────────────────────────
 
     @GetMapping("/courses")
     public Mono<ApiResponse<List<Course>>> getMyCourses(Authentication auth) {
-        Long teacherId = requireTeacher(auth);
-        return courseTeacherRepository.findByTeacherId(teacherId)
+        return requireTeacher(auth).flatMap(teacherId -> courseTeacherRepository.findByTeacherId(teacherId)
                 .flatMap(ct -> courseRepository.findById(ct.getCourseId()))
                 .collectList()
-                .map(ApiResponse::ok);
+                .map(ApiResponse::ok));
     }
 
     // ── My Students ────────────────────────────────────────────
 
     @GetMapping("/students")
     public Mono<ApiResponse<List<Map<String, Object>>>> getMyStudents(Authentication auth) {
-        Long teacherId = requireTeacher(auth);
-        return courseTeacherRepository.findByTeacherId(teacherId)
+        return requireTeacher(auth).flatMap(teacherId -> courseTeacherRepository.findByTeacherId(teacherId)
                 .collectList()
                 .flatMap(courseTeachers -> {
                     List<Long> courseIds = courseTeachers.stream().map(ct -> ct.getCourseId()).collect(Collectors.toList());
@@ -137,15 +136,14 @@ public class TeacherPanelController {
                                                     }));
                                 });
                     });
-                });
+                }));
     }
 
     // ── Teacher Questions ──────────────────────────────────────
 
     @GetMapping("/questions")
     public Mono<ApiResponse<List<Map<String, Object>>>> getQuestions(Authentication auth) {
-        Long teacherId = requireTeacher(auth);
-        return courseTeacherRepository.findByTeacherId(teacherId)
+        return requireTeacher(auth).flatMap(teacherId -> courseTeacherRepository.findByTeacherId(teacherId)
                 .collectList()
                 .flatMap(courseTeachers -> {
                     List<Long> courseIds = courseTeachers.stream().map(ct -> ct.getCourseId()).collect(Collectors.toList());
@@ -179,15 +177,14 @@ public class TeacherPanelController {
                                                     });
                                         });
                             });
-                });
+                }));
     }
 
     // ── Chat Rooms ─────────────────────────────────────────────
 
     @GetMapping("/chat/rooms")
     public Mono<ApiResponse<List<Map<String, Object>>>> getChatRooms(Authentication auth) {
-        Long teacherId = requireTeacher(auth);
-        return courseTeacherRepository.findByTeacherId(teacherId)
+        return requireTeacher(auth).flatMap(teacherId -> courseTeacherRepository.findByTeacherId(teacherId)
                 .collectList()
                 .flatMap(courseTeachers -> {
                     List<Long> courseIds = courseTeachers.stream().map(ct -> ct.getCourseId()).collect(Collectors.toList());
@@ -218,21 +215,21 @@ public class TeacherPanelController {
                             return ApiResponse.ok(rooms);
                         });
                     });
-                });
+                }));
     }
 
     @GetMapping("/chat/history")
     public Mono<ApiResponse<List<ChatMessage>>> getChatHistory(Authentication auth, @RequestParam Long courseId, @RequestParam Long studentId) {
-        requireTeacher(auth);
-        return chatMessageRepository.findByCourseAndStudent(courseId, studentId)
-                .collectList()
-                .map(ApiResponse::ok);
+        return requireTeacher(auth)
+                .flatMap(teacherId -> chatMessageRepository.findByCourseAndStudent(courseId, studentId)
+                        .collectList()
+                        .map(ApiResponse::ok));
     }
 
     // ── Helper ──────────────────────────────────────────────────
 
-    private Long requireTeacher(Authentication auth) {
-        if (auth == null) throw new uz.sevenEdu.teacherBot.common.exception.UnauthorizedException("Avtorizatsiya talab qilinadi");
-        return (Long) auth.getPrincipal();
+    /** Rol DB'dan tekshiriladi: faqat TEACHER yoki ADMIN kiradi. */
+    private Mono<Long> requireTeacher(Authentication auth) {
+        return roleGuard.requireTeacherOrAdmin(auth);
     }
 }

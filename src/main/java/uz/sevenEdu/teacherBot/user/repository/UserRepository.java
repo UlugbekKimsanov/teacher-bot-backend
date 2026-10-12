@@ -36,6 +36,10 @@ public interface UserRepository extends ReactiveCrudRepository<BaseUser, Long> {
     @Query("SELECT * FROM users WHERE role = :role")
     Flux<BaseUser> findByRole(String role);
 
+    /** Telegram bot ulangan foydalanuvchilar — butun jadvalni o'qimasdan */
+    @Query("SELECT * FROM users WHERE telegram_chat_id IS NOT NULL")
+    Flux<BaseUser> findAllWithTelegramChatId();
+
     /** Statistika uchun — mehmonsiz o'quvchilar soni */
     @Query("SELECT COUNT(*) FROM users WHERE role = 'STUDENT' AND (is_guest IS NULL OR is_guest = false)")
     Mono<Long> countRealStudents();
