@@ -3,8 +3,9 @@ package uz.sevenEdu.teacherBot.payment.click.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-import uz.sevenEdu.teacherBot.books.service.BooksService;
 import uz.sevenEdu.teacherBot.payment.common.BookPaymentAmountService;
+import uz.sevenEdu.teacherBot.payment.common.CoursePaymentAmountService;
+import uz.sevenEdu.teacherBot.payment.common.PaymentFulfillmentService;
 import uz.sevenEdu.teacherBot.payment.order.repository.PaymentOrderRepository;
 import uz.sevenEdu.teacherBot.payment.click.config.ClickProperties;
 import uz.sevenEdu.teacherBot.payment.click.dto.ClickCompleteRequestDto;
@@ -27,9 +28,10 @@ public class ClickServiceImpl implements ClickService {
 
     private final ClickProperties clickProperties;
     private final ClickTransactionRepository clickTransactionRepository;
-    private final BooksService booksService;
     private final PaymentOrderRepository paymentOrderRepository;
     private final BookPaymentAmountService bookPaymentAmountService;
+    private final CoursePaymentAmountService coursePaymentAmountService;
+    private final PaymentFulfillmentService paymentFulfillmentService;
 
     @Override
     public Mono<ClickResponseDto> prepare(ClickPrepareRequestDto request) {
@@ -55,7 +57,12 @@ public class ClickServiceImpl implements ClickService {
             return prepareBookPayment(request);
         }
 
-        // 3b. Oddiy buyurtma: merchant_trans_id = order ID (raqam)
+        // 3b. Kurs to'lovi: merchant_trans_id = "course_{userId}_{courseId}"
+        if (merchantTransId != null && merchantTransId.startsWith("course_")) {
+            return prepareCoursePayment(request);
+        }
+
+        // 3c. Oddiy buyurtma: merchant_trans_id = order ID (raqam)
         Long orderId;
         try {
             orderId = Long.parseLong(merchantTransId);
@@ -94,6 +101,24 @@ public class ClickServiceImpl implements ClickService {
                 return upsertPreparedTransaction(request);
             })
             // Kitob topilmadi yoki merchant_trans_id formati noto'g'ri
+            .switchIfEmpty(Mono.just(errorResponse(request.getClickTransId(), request.getMerchantTransId(), null, ClickError.USER_NOT_FOUND)));
+    }
+
+    /**
+     * Kurs to'lovi uchun prepare: kelgan summa (so'm) kursning kutilgan
+     * narxi bilan qat'iy solishtiriladi, mos kelsa tranzaksiya saqlanadi.
+     * prepareBookPayment bilan bir xil naqsh.
+     */
+    private Mono<ClickResponseDto> prepareCoursePayment(ClickPrepareRequestDto request) {
+        return coursePaymentAmountService.expectedAmountSum(request.getMerchantTransId())
+            .flatMap(expectedSum -> {
+                if (request.getAmount() == null
+                        || BigDecimal.valueOf(expectedSum).compareTo(request.getAmount()) != 0) {
+                    return Mono.just(errorResponse(request.getClickTransId(), request.getMerchantTransId(), null, ClickError.INCORRECT_AMOUNT));
+                }
+                return upsertPreparedTransaction(request);
+            })
+            // Kurs topilmadi yoki merchant_trans_id formati noto'g'ri
             .switchIfEmpty(Mono.just(errorResponse(request.getClickTransId(), request.getMerchantTransId(), null, ClickError.USER_NOT_FOUND)));
     }
 
@@ -199,19 +224,16 @@ public class ClickServiceImpl implements ClickService {
 
     /**
      * To'lov muvaffaqiyatli bo'lganda chaqiriladi.
-     * merchantTransId formati: "book_{userId}_{bookId}"
+     * merchantTransId formati: "book_{userId}_{bookId}",
+     * "course_{userId}_{courseId}" yoki order ID (raqam).
      */
     private Mono<Void> onPaymentSuccess(String merchantTransId, BigDecimal amount) {
         if (merchantTransId == null) return Mono.empty();
 
-        // book_{userId}_{bookId} formati
-        String[] parts = merchantTransId.split("_");
-        if (parts.length == 3 && "book".equals(parts[0])) {
-            try {
-                Long userId = Long.parseLong(parts[1]);
-                Long bookId = Long.parseLong(parts[2]);
-                return booksService.purchaseBook(userId, bookId, "click", merchantTransId);
-            } catch (NumberFormatException ignored) {}
+        // Kitob/kurs: umumiy servis (kitob faollashtirish yoki kursga avto-enroll
+        // + checkout token'ni ishlatilgan deb belgilash)
+        if (merchantTransId.startsWith("book_") || merchantTransId.startsWith("course_")) {
+            return paymentFulfillmentService.onPaymentSuccess(merchantTransId, "click");
         }
 
         // Order ID (raqam)

@@ -3,9 +3,10 @@ package uz.sevenEdu.teacherBot.payment.alif.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-import uz.sevenEdu.teacherBot.books.service.BooksService;
 import uz.sevenEdu.teacherBot.payment.alif.config.AlifNasiyaProperties;
 import uz.sevenEdu.teacherBot.payment.common.BookPaymentAmountService;
+import uz.sevenEdu.teacherBot.payment.common.CoursePaymentAmountService;
+import uz.sevenEdu.teacherBot.payment.common.PaymentFulfillmentService;
 import uz.sevenEdu.teacherBot.payment.alif.dto.AlifAccountVerifyRequest;
 import uz.sevenEdu.teacherBot.payment.alif.dto.AlifAccountVerifyResponse;
 import uz.sevenEdu.teacherBot.payment.alif.dto.AlifWebhookRequest;
@@ -22,12 +23,13 @@ public class AlifNasiyaService {
 
     private final AlifTransactionRepository repository;
     private final AlifNasiyaProperties properties;
-    private final BooksService booksService;
     private final BookPaymentAmountService bookPaymentAmountService;
+    private final CoursePaymentAmountService coursePaymentAmountService;
+    private final PaymentFulfillmentService paymentFulfillmentService;
 
     /**
      * bePaid chaqiradi — mijoz akkauntini tekshirish.
-     * merchantTransId = account = "book_{userId}_{bookId}"
+     * merchantTransId = account = "book_{userId}_{bookId}" yoki "course_{userId}_{courseId}"
      */
     public Mono<AlifAccountVerifyResponse> verifyAccount(AlifAccountVerifyRequest req, String authHeader) {
         if (!isAuthorized(authHeader)) {
@@ -35,19 +37,20 @@ public class AlifNasiyaService {
         }
 
         String merchantTransId = req.getAccount();
-        if (merchantTransId == null || !merchantTransId.startsWith("book_")) {
+        if (merchantTransId == null
+                || !(merchantTransId.startsWith("book_") || merchantTransId.startsWith("course_"))) {
             return Mono.just(AlifAccountVerifyResponse.error(5, "Account topilmadi"));
         }
         if (req.getAmount() == null || req.getAmount() <= 0) {
             return Mono.just(AlifAccountVerifyResponse.error(241, "Miqdor noto'g'ri"));
         }
 
-        // Kelgan summa (so'm) kitobning kutilgan narxi bilan qat'iy solishtiriladi
-        return bookPaymentAmountService.expectedAmountSum(merchantTransId)
+        // Kelgan summa (so'm) mahsulotning (kitob/kurs) kutilgan narxi bilan qat'iy solishtiriladi
+        return expectedAmountSum(merchantTransId)
                 .flatMap(expected -> {
                     if (!expected.equals(req.getAmount())) {
                         return Mono.just(AlifAccountVerifyResponse.error(241,
-                                "Miqdor kitob narxiga mos emas"));
+                                "Miqdor mahsulot narxiga mos emas"));
                     }
                     // Tranzaksiya yaratish (PENDING)
                     return repository.findByMerchantTransId(merchantTransId)
@@ -68,7 +71,7 @@ public class AlifNasiyaService {
                                                 saved.getId().toString(), req.getAmount(), saved.getCurrency()));
                             }));
                 })
-                .switchIfEmpty(Mono.just(AlifAccountVerifyResponse.error(5, "Kitob topilmadi")));
+                .switchIfEmpty(Mono.just(AlifAccountVerifyResponse.error(5, "Mahsulot topilmadi")));
     }
 
     /**
@@ -103,18 +106,17 @@ public class AlifNasiyaService {
                     return repository.save(tx)
                             .flatMap(saved -> {
                                 if (saved.getStatus() == AlifTransactionStatus.SUCCESSFUL) {
-                                    // Faollashtirishdan oldin summa (so'm) kutilgan kitob narxi
-                                    // bilan qat'iy solishtiriladi: webhook'dagi amount, u bo'lmasa
-                                    // tranzaksiyada saqlangan summa
+                                    // Faollashtirishdan oldin summa (so'm) kutilgan mahsulot
+                                    // (kitob/kurs) narxi bilan qat'iy solishtiriladi: webhook'dagi
+                                    // amount, u bo'lmasa tranzaksiyada saqlangan summa
                                     BigDecimal paid = req.getAmount() != null
                                             ? BigDecimal.valueOf(req.getAmount())
                                             : saved.getAmount();
-                                    return bookPaymentAmountService
-                                            .expectedAmountSum(saved.getMerchantTransId())
+                                    return expectedAmountSum(saved.getMerchantTransId())
                                             .flatMap(expected -> {
                                                 if (paid == null
                                                         || BigDecimal.valueOf(expected).compareTo(paid) != 0) {
-                                                    // Summa mos emas — kitob faollashtirilmaydi
+                                                    // Summa mos emas — mahsulot faollashtirilmaydi
                                                     return Mono.<Void>empty();
                                                 }
                                                 return onPaymentSuccess(saved.getMerchantTransId());
@@ -136,17 +138,19 @@ public class AlifNasiyaService {
         };
     }
 
+    /** Prefiksga qarab kutilgan summani (so'm) tanlaydi: kitob yoki kurs. */
+    private Mono<Long> expectedAmountSum(String merchantTransId) {
+        return merchantTransId != null && merchantTransId.startsWith("course_")
+                ? coursePaymentAmountService.expectedAmountSum(merchantTransId)
+                : bookPaymentAmountService.expectedAmountSum(merchantTransId);
+    }
+
+    /**
+     * To'lov muvaffaqiyatida: kitobni faollashtirish yoki kursga avto-enroll
+     * (+ checkout token'ni ishlatilgan deb belgilash) — umumiy servis orqali.
+     */
     private Mono<Void> onPaymentSuccess(String merchantTransId) {
-        if (merchantTransId == null) return Mono.empty();
-        String[] parts = merchantTransId.split("_");
-        if (parts.length == 3 && "book".equals(parts[0])) {
-            try {
-                Long userId = Long.parseLong(parts[1]);
-                Long bookId = Long.parseLong(parts[2]);
-                return booksService.purchaseBook(userId, bookId, "alif_nasiya", merchantTransId);
-            } catch (NumberFormatException ignored) {}
-        }
-        return Mono.empty();
+        return paymentFulfillmentService.onPaymentSuccess(merchantTransId, "alif_nasiya");
     }
 
     private boolean isAuthorized(String authHeader) {

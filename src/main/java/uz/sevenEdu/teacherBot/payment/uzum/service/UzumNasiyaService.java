@@ -3,8 +3,9 @@ package uz.sevenEdu.teacherBot.payment.uzum.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-import uz.sevenEdu.teacherBot.books.service.BooksService;
 import uz.sevenEdu.teacherBot.payment.common.BookPaymentAmountService;
+import uz.sevenEdu.teacherBot.payment.common.CoursePaymentAmountService;
+import uz.sevenEdu.teacherBot.payment.common.PaymentFulfillmentService;
 import uz.sevenEdu.teacherBot.payment.uzum.config.UzumNasiyaProperties;
 import uz.sevenEdu.teacherBot.payment.uzum.dto.UzumNasiyaRequest;
 import uz.sevenEdu.teacherBot.payment.uzum.dto.UzumNasiyaResponse;
@@ -23,8 +24,9 @@ public class UzumNasiyaService {
 
     private final UzumNasiyaTransactionRepository repository;
     private final UzumNasiyaProperties properties;
-    private final BooksService booksService;
     private final BookPaymentAmountService bookPaymentAmountService;
+    private final CoursePaymentAmountService coursePaymentAmountService;
+    private final PaymentFulfillmentService paymentFulfillmentService;
 
     // ── Check ───────────────────────────────────────────────────────
     public Mono<UzumNasiyaResponse> check(UzumNasiyaRequest req) {
@@ -32,7 +34,7 @@ public class UzumNasiyaService {
             return Mono.just(UzumNasiyaResponse.error(-1, "serviceId noto'g'ri"));
         }
         String merchantTransId = req.getMerchantTransId();
-        if (merchantTransId == null || !merchantTransId.startsWith("book_")) {
+        if (!isSupportedMerchantTransId(merchantTransId)) {
             return Mono.just(UzumNasiyaResponse.error(-2, "order_id noto'g'ri"));
         }
         Map<String, Object> data = new HashMap<>();
@@ -50,7 +52,7 @@ public class UzumNasiyaService {
         String merchantTransId = req.getMerchantTransId();
         Long amount = req.getAmount();
 
-        if (merchantTransId == null || !merchantTransId.startsWith("book_")) {
+        if (!isSupportedMerchantTransId(merchantTransId)) {
             return Mono.just(UzumNasiyaResponse.error(-2, "order_id noto'g'ri"));
         }
         if (amount == null || amount <= 0) {
@@ -64,12 +66,13 @@ public class UzumNasiyaService {
                     return Mono.just(UzumNasiyaResponse.ok(data));
                 })
                 .switchIfEmpty(Mono.defer(() ->
-                        // Yangi tranzaksiya — avval summa (so'm) kutilgan kitob narxi bilan solishtiriladi
-                        bookPaymentAmountService.expectedAmountSum(merchantTransId)
+                        // Yangi tranzaksiya — avval summa (so'm) kutilgan mahsulot (kitob/kurs)
+                        // narxi bilan solishtiriladi
+                        expectedAmountSum(merchantTransId)
                                 .flatMap(expected -> {
                                     if (!expected.equals(amount)) {
                                         return Mono.just(UzumNasiyaResponse.error(-3,
-                                                "Miqdor kitob narxiga mos emas"));
+                                                "Miqdor mahsulot narxiga mos emas"));
                                     }
                                     UzumNasiyaTransaction tx = UzumNasiyaTransaction.builder()
                                             .transId(transId)
@@ -82,7 +85,7 @@ public class UzumNasiyaService {
                                     return repository.save(tx)
                                             .map(saved -> UzumNasiyaResponse.ok(txData(saved)));
                                 })
-                                .switchIfEmpty(Mono.just(UzumNasiyaResponse.error(-2, "Kitob topilmadi")))
+                                .switchIfEmpty(Mono.just(UzumNasiyaResponse.error(-2, "Mahsulot topilmadi")))
                 ));
     }
 
@@ -144,17 +147,25 @@ public class UzumNasiyaService {
 
     // ── Yordamchi ───────────────────────────────────────────────────
 
+    /** Qo'llab-quvvatlanadigan merchantTransId prefikslari: book_ va course_ */
+    private boolean isSupportedMerchantTransId(String merchantTransId) {
+        return merchantTransId != null
+                && (merchantTransId.startsWith("book_") || merchantTransId.startsWith("course_"));
+    }
+
+    /** Prefiksga qarab kutilgan summani (so'm) tanlaydi: kitob yoki kurs. */
+    private Mono<Long> expectedAmountSum(String merchantTransId) {
+        return merchantTransId != null && merchantTransId.startsWith("course_")
+                ? coursePaymentAmountService.expectedAmountSum(merchantTransId)
+                : bookPaymentAmountService.expectedAmountSum(merchantTransId);
+    }
+
+    /**
+     * To'lov muvaffaqiyatida: kitobni faollashtirish yoki kursga avto-enroll
+     * (+ checkout token'ni ishlatilgan deb belgilash) — umumiy servis orqali.
+     */
     private Mono<Void> onPaymentSuccess(String merchantTransId) {
-        if (merchantTransId == null) return Mono.empty();
-        String[] parts = merchantTransId.split("_");
-        if (parts.length == 3 && "book".equals(parts[0])) {
-            try {
-                Long userId = Long.parseLong(parts[1]);
-                Long bookId = Long.parseLong(parts[2]);
-                return booksService.purchaseBook(userId, bookId, "uzum_nasiya", merchantTransId);
-            } catch (NumberFormatException ignored) {}
-        }
-        return Mono.empty();
+        return paymentFulfillmentService.onPaymentSuccess(merchantTransId, "uzum_nasiya");
     }
 
     private Map<String, Object> txData(UzumNasiyaTransaction tx) {

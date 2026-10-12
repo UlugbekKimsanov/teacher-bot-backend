@@ -3,8 +3,9 @@ package uz.sevenEdu.teacherBot.payment.payme.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-import uz.sevenEdu.teacherBot.books.service.BooksService;
 import uz.sevenEdu.teacherBot.payment.common.BookPaymentAmountService;
+import uz.sevenEdu.teacherBot.payment.common.CoursePaymentAmountService;
+import uz.sevenEdu.teacherBot.payment.common.PaymentFulfillmentService;
 import uz.sevenEdu.teacherBot.payment.payme.config.PaymeProperties;
 import uz.sevenEdu.teacherBot.payment.payme.dto.PaymeRequest;
 import uz.sevenEdu.teacherBot.payment.payme.dto.PaymeResponse;
@@ -22,7 +23,7 @@ import java.util.Map;
  * Payme JSON-RPC 2.0 protokoli bo'yicha to'lov qabul qilish.
  * https://developer.help.paycom.uz/
  *
- * merchantTransId formati: "book_{userId}_{bookId}"
+ * merchantTransId formati: "book_{userId}_{bookId}" yoki "course_{userId}_{courseId}"
  * amount: tiyin (1 so'm = 100 tiyin)
  */
 @Service
@@ -31,8 +32,9 @@ public class PaymeService {
 
     private final PaymeTransactionRepository paymeTransactionRepository;
     private final PaymeProperties paymeProperties;
-    private final BooksService booksService;
     private final BookPaymentAmountService bookPaymentAmountService;
+    private final CoursePaymentAmountService coursePaymentAmountService;
+    private final PaymentFulfillmentService paymentFulfillmentService;
 
     // ── Payme xato kodlari ──────────────────────────────────────────
     private static final int ERR_INSUFFICIENT_PRIVILEGE = -32504;
@@ -66,7 +68,7 @@ public class PaymeService {
         String merchantTransId = req.getMerchantTransId();
         Long amount = req.getAmount();
 
-        if (merchantTransId == null || !merchantTransId.startsWith("book_")) {
+        if (!isSupportedMerchantTransId(merchantTransId)) {
             return Mono.just(PaymeResponse.error(
                     req.getId(), ERR_INVALID_ACCOUNT, "account.order_id noto'g'ri"));
         }
@@ -75,19 +77,19 @@ public class PaymeService {
                     req.getId(), ERR_INVALID_AMOUNT, "Miqdor noto'g'ri"));
         }
 
-        // Kelgan summa (tiyin) kitobning kutilgan narxi bilan qat'iy solishtiriladi
-        return bookPaymentAmountService.expectedAmountTiyin(merchantTransId)
+        // Kelgan summa (tiyin) mahsulotning (kitob/kurs) kutilgan narxi bilan qat'iy solishtiriladi
+        return expectedAmountTiyin(merchantTransId)
                 .flatMap(expected -> {
                     if (!expected.equals(amount)) {
                         return Mono.just(PaymeResponse.error(
-                                req.getId(), ERR_INVALID_AMOUNT, "Miqdor kitob narxiga mos emas"));
+                                req.getId(), ERR_INVALID_AMOUNT, "Miqdor mahsulot narxiga mos emas"));
                     }
                     Map<String, Object> result = new HashMap<>();
                     result.put("allow", true);
                     return Mono.just(PaymeResponse.ok(req.getId(), result));
                 })
                 .switchIfEmpty(Mono.just(PaymeResponse.error(
-                        req.getId(), ERR_INVALID_ACCOUNT, "Kitob topilmadi")));
+                        req.getId(), ERR_INVALID_ACCOUNT, "Mahsulot topilmadi")));
     }
 
     // ── CreateTransaction ───────────────────────────────────────────
@@ -97,7 +99,7 @@ public class PaymeService {
         Long amount = req.getAmount();
         Long createTime = req.getCreateTime();
 
-        if (merchantTransId == null || !merchantTransId.startsWith("book_")) {
+        if (!isSupportedMerchantTransId(merchantTransId)) {
             return Mono.just(PaymeResponse.error(
                     req.getId(), ERR_INVALID_ACCOUNT, "account.order_id noto'g'ri"));
         }
@@ -116,12 +118,12 @@ public class PaymeService {
                     return Mono.just(PaymeResponse.ok(req.getId(), result));
                 })
                 .switchIfEmpty(Mono.defer(() ->
-                        // Yangi tranzaksiya — avval summa (tiyin) kutilgan kitob narxi bilan solishtiriladi
-                        bookPaymentAmountService.expectedAmountTiyin(merchantTransId)
+                        // Yangi tranzaksiya — avval summa (tiyin) kutilgan mahsulot narxi bilan solishtiriladi
+                        expectedAmountTiyin(merchantTransId)
                                 .flatMap(expected -> {
                                     if (!expected.equals(amount)) {
                                         return Mono.just(PaymeResponse.error(
-                                                req.getId(), ERR_INVALID_AMOUNT, "Miqdor kitob narxiga mos emas"));
+                                                req.getId(), ERR_INVALID_AMOUNT, "Miqdor mahsulot narxiga mos emas"));
                                     }
                                     PaymeTransaction tx = PaymeTransaction.builder()
                                             .paymeId(paymeId)
@@ -142,7 +144,7 @@ public class PaymeService {
                                             });
                                 })
                                 .switchIfEmpty(Mono.just(PaymeResponse.error(
-                                        req.getId(), ERR_INVALID_ACCOUNT, "Kitob topilmadi")))
+                                        req.getId(), ERR_INVALID_ACCOUNT, "Mahsulot topilmadi")))
                 ));
     }
 
@@ -267,21 +269,26 @@ public class PaymeService {
 
     // ── Yordamchi metodlar ──────────────────────────────────────────
 
+    /** Qo'llab-quvvatlanadigan merchantTransId prefikslari: book_ va course_ */
+    private boolean isSupportedMerchantTransId(String merchantTransId) {
+        return merchantTransId != null
+                && (merchantTransId.startsWith("book_") || merchantTransId.startsWith("course_"));
+    }
+
+    /** Prefiksga qarab kutilgan summani (tiyin) tanlaydi: kitob yoki kurs. */
+    private Mono<Long> expectedAmountTiyin(String merchantTransId) {
+        return merchantTransId != null && merchantTransId.startsWith("course_")
+                ? coursePaymentAmountService.expectedAmountTiyin(merchantTransId)
+                : bookPaymentAmountService.expectedAmountTiyin(merchantTransId);
+    }
+
     /**
-     * merchantTransId bo'yicha user va kitobni topib purchaseBook chaqiradi.
-     * format: "book_{userId}_{bookId}"
+     * To'lov muvaffaqiyatida: kitobni faollashtirish yoki kursga avto-enroll
+     * (+ checkout token'ni ishlatilgan deb belgilash) — umumiy servis orqali.
+     * format: "book_{userId}_{bookId}" yoki "course_{userId}_{courseId}"
      */
     private Mono<Void> onPaymentSuccess(String merchantTransId) {
-        if (merchantTransId == null) return Mono.empty();
-        String[] parts = merchantTransId.split("_");
-        if (parts.length == 3 && "book".equals(parts[0])) {
-            try {
-                Long userId = Long.parseLong(parts[1]);
-                Long bookId = Long.parseLong(parts[2]);
-                return booksService.purchaseBook(userId, bookId, "payme", merchantTransId);
-            } catch (NumberFormatException ignored) {}
-        }
-        return Mono.empty();
+        return paymentFulfillmentService.onPaymentSuccess(merchantTransId, "payme");
     }
 
     /** Payme state kodi: 1=created, 2=performed, -1=cancelled */

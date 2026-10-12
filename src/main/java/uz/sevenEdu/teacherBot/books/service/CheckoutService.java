@@ -4,6 +4,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import uz.sevenEdu.teacherBot.books.repository.BooksRepository;
+import uz.sevenEdu.teacherBot.common.exception.NotFoundException;
+import uz.sevenEdu.teacherBot.course.repository.CourseRepository;
 import uz.sevenEdu.teacherBot.payment.click.config.ClickProperties;
 import uz.sevenEdu.teacherBot.payment.payme.config.PaymeProperties;
 
@@ -15,13 +17,16 @@ import java.util.Map;
 
 /**
  * Har bir to'lov tizimi uchun checkout URL yaratadi.
- * merchantTransId formati: "book_{userId}_{bookId}"
+ * merchantTransId formati:
+ *  - kitob: "book_{userId}_{bookId}"
+ *  - kurs:  "course_{userId}_{courseId}"
  */
 @Service
 @RequiredArgsConstructor
 public class CheckoutService {
 
     private final BooksRepository booksRepository;
+    private final CourseRepository courseRepository;
     private final ClickProperties clickProperties;
     private final PaymeProperties paymeProperties;
 
@@ -38,22 +43,43 @@ public class CheckoutService {
                             && book.getDeliveryPrice() != null) {
                         priceSum += book.getDeliveryPrice();
                     }
-                    long priceTiyin = priceSum * 100L;
-
-                    String checkoutUrl = switch (paymentMethod.toLowerCase()) {
-                        case "click" -> buildClickUrl(merchantTransId, priceSum);
-                        case "payme" -> buildPaymeUrl(merchantTransId, priceTiyin);
-                        case "paynet" -> buildPaynetUrl(merchantTransId, priceSum);
-                        case "uzum nasiya", "uzumnasiya" -> buildUzumNasiyaUrl(merchantTransId, priceSum);
-                        case "alif nasiya", "alifnasiya" -> buildAlifNasiyaUrl(merchantTransId, priceSum);
-                        default -> throw new RuntimeException("Noto'g'ri to'lov usuli: " + paymentMethod);
-                    };
-
-                    Map<String, String> result = new HashMap<>();
-                    result.put("checkoutUrl", checkoutUrl);
-                    result.put("merchantTransId", merchantTransId);
-                    return result;
+                    return buildResult(merchantTransId, paymentMethod, priceSum);
                 });
+    }
+
+    /**
+     * Premium KURS uchun checkout URL — kitob naqshi bilan bir xil,
+     * summa = kurs narxi (so'mda), Payme/Paynet'da ×100 tiyin.
+     * DIQQAT: summa CoursePaymentAmountService dagi hisob bilan AYNAN bir xil.
+     */
+    public Mono<Map<String, String>> createCourseCheckoutUrl(Long userId, Long courseId, String paymentMethod) {
+        String merchantTransId = "course_" + userId + "_" + courseId;
+
+        return courseRepository.findById(courseId)
+                .switchIfEmpty(Mono.error(new NotFoundException("Kurs topilmadi")))
+                .map(course -> {
+                    int priceSum = course.getPrice() != null ? course.getPrice() : 0;
+                    return buildResult(merchantTransId, paymentMethod, priceSum);
+                });
+    }
+
+    /** Usulga mos provayder URL'ini qurib, natija xaritasini qaytaradi. */
+    private Map<String, String> buildResult(String merchantTransId, String paymentMethod, int priceSum) {
+        long priceTiyin = priceSum * 100L;
+
+        String checkoutUrl = switch (paymentMethod.toLowerCase()) {
+            case "click" -> buildClickUrl(merchantTransId, priceSum);
+            case "payme" -> buildPaymeUrl(merchantTransId, priceTiyin);
+            case "paynet" -> buildPaynetUrl(merchantTransId, priceSum);
+            case "uzum nasiya", "uzumnasiya" -> buildUzumNasiyaUrl(merchantTransId, priceSum);
+            case "alif nasiya", "alifnasiya" -> buildAlifNasiyaUrl(merchantTransId, priceSum);
+            default -> throw new RuntimeException("Noto'g'ri to'lov usuli: " + paymentMethod);
+        };
+
+        Map<String, String> result = new HashMap<>();
+        result.put("checkoutUrl", checkoutUrl);
+        result.put("merchantTransId", merchantTransId);
+        return result;
     }
 
     /**

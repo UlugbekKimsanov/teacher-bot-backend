@@ -3,8 +3,9 @@ package uz.sevenEdu.teacherBot.payment.paynet.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-import uz.sevenEdu.teacherBot.books.service.BooksService;
 import uz.sevenEdu.teacherBot.payment.common.BookPaymentAmountService;
+import uz.sevenEdu.teacherBot.payment.common.CoursePaymentAmountService;
+import uz.sevenEdu.teacherBot.payment.common.PaymentFulfillmentService;
 import uz.sevenEdu.teacherBot.payment.paynet.config.PaynetProperties;
 import uz.sevenEdu.teacherBot.payment.paynet.dto.PaynetRequest;
 import uz.sevenEdu.teacherBot.payment.paynet.dto.PaynetResponse;
@@ -21,7 +22,7 @@ import java.util.function.Supplier;
 
 /**
  * Paynet JSON-RPC 2.0 protokoli bo'yicha to'lov qabul qilish.
- * merchantTransId formati: "book_{userId}_{bookId}"
+ * merchantTransId formati: "book_{userId}_{bookId}" yoki "course_{userId}_{courseId}"
  * amount: tiyin (1 so'm = 100 tiyin)
  */
 @Service
@@ -30,8 +31,9 @@ public class PaynetService {
 
     private final PaynetTransactionRepository paynetTransactionRepository;
     private final PaynetProperties paynetProperties;
-    private final BooksService booksService;
     private final BookPaymentAmountService bookPaymentAmountService;
+    private final CoursePaymentAmountService coursePaymentAmountService;
+    private final PaymentFulfillmentService paymentFulfillmentService;
 
     private static final DateTimeFormatter DATE_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -67,7 +69,8 @@ public class PaynetService {
         String merchantTransId = req.getMerchantTransId();
         Long amount            = req.getAmount();
 
-        if (merchantTransId == null || !merchantTransId.startsWith("book_")) {
+        if (merchantTransId == null
+                || !(merchantTransId.startsWith("book_") || merchantTransId.startsWith("course_"))) {
             return Mono.just(PaynetResponse.error(
                     req.getId(), ERR_INVALID_ACCOUNT, "account (order_id) noto'g'ri"));
         }
@@ -168,31 +171,34 @@ public class PaynetService {
     // ── Yordamchi metodlar ──────────────────────────────────────────
 
     /**
-     * Kelgan summani (tiyin) kitobning kutilgan narxi bilan qat'iy solishtiradi;
-     * mos kelsa davomini bajaradi, aks holda protokol xatosini qaytaradi.
+     * Kelgan summani (tiyin) mahsulotning (kitob/kurs) kutilgan narxi bilan
+     * qat'iy solishtiradi; mos kelsa davomini bajaradi, aks holda protokol
+     * xatosini qaytaradi.
      */
     private Mono<PaynetResponse> withValidAmount(PaynetRequest req, String merchantTransId,
                                                  Long amount, Supplier<Mono<PaynetResponse>> action) {
-        return bookPaymentAmountService.expectedAmountTiyin(merchantTransId)
+        return expectedAmountTiyin(merchantTransId)
                 .flatMap(expected -> expected.equals(amount)
                         ? action.get()
                         : Mono.just(PaynetResponse.error(
-                                req.getId(), ERR_INVALID_AMOUNT, "Miqdor kitob narxiga mos emas")))
+                                req.getId(), ERR_INVALID_AMOUNT, "Miqdor mahsulot narxiga mos emas")))
                 .switchIfEmpty(Mono.just(PaynetResponse.error(
-                        req.getId(), ERR_INVALID_ACCOUNT, "Kitob topilmadi")));
+                        req.getId(), ERR_INVALID_ACCOUNT, "Mahsulot topilmadi")));
     }
 
+    /** Prefiksga qarab kutilgan summani (tiyin) tanlaydi: kitob yoki kurs. */
+    private Mono<Long> expectedAmountTiyin(String merchantTransId) {
+        return merchantTransId != null && merchantTransId.startsWith("course_")
+                ? coursePaymentAmountService.expectedAmountTiyin(merchantTransId)
+                : bookPaymentAmountService.expectedAmountTiyin(merchantTransId);
+    }
+
+    /**
+     * To'lov muvaffaqiyatida: kitobni faollashtirish yoki kursga avto-enroll
+     * (+ checkout token'ni ishlatilgan deb belgilash) — umumiy servis orqali.
+     */
     private Mono<Void> onPaymentSuccess(String merchantTransId) {
-        if (merchantTransId == null) return Mono.empty();
-        String[] parts = merchantTransId.split("_");
-        if (parts.length == 3 && "book".equals(parts[0])) {
-            try {
-                Long userId = Long.parseLong(parts[1]);
-                Long bookId = Long.parseLong(parts[2]);
-                return booksService.purchaseBook(userId, bookId, "paynet", merchantTransId);
-            } catch (NumberFormatException ignored) {}
-        }
-        return Mono.empty();
+        return paymentFulfillmentService.onPaymentSuccess(merchantTransId, "paynet");
     }
 
     private Map<String, Object> txResult(PaynetTransaction tx, String statusLabel) {
