@@ -21,6 +21,7 @@ public class Course {
     private String backgroundImage;
     private String flagEmoji;
     private String goal;
+    private String author;        // kurs muallifi (dars videosida muallif sifatida ko'rsatiladi)
     private Boolean isPremium;
     private Integer price;        // so'mda (premium kurslar uchun)
     private String priceLabel;    // masalan "199 000 so'm"

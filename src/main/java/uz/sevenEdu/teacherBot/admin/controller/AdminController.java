@@ -559,6 +559,7 @@ public class AdminController {
                     c.setLanguageId(body.getLanguageId());
                     c.setFlagEmoji(body.getFlagEmoji());
                     c.setGoal(body.getGoal());
+                    c.setAuthor(body.getAuthor());
                     c.setIsPremium(body.getIsPremium());
                     // coverImage/imageId form'da yuborilmaydi (alohida upload qilinadi) —
                     // null bo'lsa mavjud rasmni O'CHIRMAYMIZ (aks holda har saqlashda cover yo'qoladi).

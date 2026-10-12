@@ -35,6 +35,7 @@ public class LessonServiceImpl implements LessonService {
     private final uz.sevenEdu.teacherBot.rating.service.AchievementService achievementService;
     private final uz.sevenEdu.teacherBot.chat.repository.CourseTeacherRepository courseTeacherRepository;
     private final uz.sevenEdu.teacherBot.user.repository.UserRepository userRepository;
+    private final uz.sevenEdu.teacherBot.course.repository.CourseRepository courseRepository;
 
     @Override
     public Flux<LessonDetailDto> getLessonsByCourse(Long courseId, Long userId) {
@@ -96,13 +97,21 @@ public class LessonServiceImpl implements LessonService {
                             .map(Lesson::getId)
                             .defaultIfEmpty(0L);
 
-                    // Kurs ustozi — video muallifi sifatida ko'rsatiladi (birinchisi)
-                    Mono<String> teacherNameMono = courseTeacherRepository
-                            .findByCourseId(lesson.getCourseId())
-                            .next()
-                            .flatMap(ct -> userRepository.findById(ct.getTeacherId()))
-                            .map(u -> ((u.getFirstName() != null ? u.getFirstName() : "") + " "
-                                    + (u.getLastName() != null ? u.getLastName() : "")).trim())
+                    // Video muallifi: avval kursning author maydoni, bo'lmasa
+                    // kursga biriktirilgan birinchi ustozning ismi.
+                    Mono<String> teacherNameMono = courseRepository
+                            .findById(lesson.getCourseId())
+                            .flatMap(course -> {
+                                if (course.getAuthor() != null && !course.getAuthor().isBlank()) {
+                                    return Mono.just(course.getAuthor().trim());
+                                }
+                                return courseTeacherRepository
+                                        .findByCourseId(lesson.getCourseId())
+                                        .next()
+                                        .flatMap(ct -> userRepository.findById(ct.getTeacherId()))
+                                        .map(u -> ((u.getFirstName() != null ? u.getFirstName() : "") + " "
+                                                + (u.getLastName() != null ? u.getLastName() : "")).trim());
+                            })
                             .defaultIfEmpty("");
 
                     return Mono.zip(
