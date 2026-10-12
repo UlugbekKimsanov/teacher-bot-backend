@@ -20,6 +20,7 @@ public class LessonDetailDto {
     private Integer testScore;
     private Integer exerciseScore;
     private Long nextLessonId;
+    private String teacherName; // kurs ustozi (video muallifi sifatida ko'rsatiladi)
     private List<VocabDto> vocabulary;
     private List<QuestionDto> questions;
     private List<ExerciseDto> exercises;

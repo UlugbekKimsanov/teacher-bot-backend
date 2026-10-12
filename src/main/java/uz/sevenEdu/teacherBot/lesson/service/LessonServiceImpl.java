@@ -33,6 +33,8 @@ public class LessonServiceImpl implements LessonService {
     private final FileStorageService fileStorageService;
     private final uz.sevenEdu.teacherBot.rating.repository.PointsRepository pointsRepository;
     private final uz.sevenEdu.teacherBot.rating.service.AchievementService achievementService;
+    private final uz.sevenEdu.teacherBot.chat.repository.CourseTeacherRepository courseTeacherRepository;
+    private final uz.sevenEdu.teacherBot.user.repository.UserRepository userRepository;
 
     @Override
     public Flux<LessonDetailDto> getLessonsByCourse(Long courseId, Long userId) {
@@ -94,13 +96,23 @@ public class LessonServiceImpl implements LessonService {
                             .map(Lesson::getId)
                             .defaultIfEmpty(0L);
 
+                    // Kurs ustozi — video muallifi sifatida ko'rsatiladi (birinchisi)
+                    Mono<String> teacherNameMono = courseTeacherRepository
+                            .findByCourseId(lesson.getCourseId())
+                            .next()
+                            .flatMap(ct -> userRepository.findById(ct.getTeacherId()))
+                            .map(u -> ((u.getFirstName() != null ? u.getFirstName() : "") + " "
+                                    + (u.getLastName() != null ? u.getLastName() : "")).trim())
+                            .defaultIfEmpty("");
+
                     return Mono.zip(
                             vocabularyRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
                             questionRepository.findByLessonId(lessonId).collectList(),
                             exerciseRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
                             ulMono,
                             nextLessonIdMono,
-                            audiobookRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList()
+                            audiobookRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
+                            teacherNameMono
                     ).map(tuple -> {
                         Long nextId = tuple.getT5() == 0L ? null : tuple.getT5();
                         UserLesson ul = tuple.getT4();
@@ -119,6 +131,7 @@ public class LessonServiceImpl implements LessonService {
                             .testScore(ul.getTestScore())
                             .exerciseScore(ul.getExerciseScore())
                             .nextLessonId(completed ? nextId : null)
+                            .teacherName(tuple.getT7().isBlank() ? null : tuple.getT7())
                             .vocabulary(tuple.getT1().stream().map(v -> LessonDetailDto.VocabDto.builder()
                                     .id(v.getId()).phraseUz(v.getTranslationUz()).phraseEn(v.getTranslationTarget()).build()).toList())
                             .questions(tuple.getT2().stream().map(q -> LessonDetailDto.QuestionDto.builder()
