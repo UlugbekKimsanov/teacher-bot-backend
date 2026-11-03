@@ -12,6 +12,11 @@ public class LessonDetailDto {
     private String description;
     private String coverImage;
     private String videoUrl;
+    /**
+     * YouTube unlisted video ID. Faqat haqli foydalanuvchiga qaytariladi:
+     * kursga yozilganlarga — har doim; qolganlarga — faqat birinchi dars uchun, aks holda null.
+     */
+    private String youtubeId;
     private Integer orderIndex;
     private Integer durationSec;
     private boolean completed;

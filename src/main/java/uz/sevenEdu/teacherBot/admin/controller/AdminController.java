@@ -682,6 +682,7 @@ public class AdminController {
                     .durationSec(lesson.getDurationSec())
                     .coverImage(lesson.getCoverImage())
                     .videoUrl(lesson.getVideoUrl())
+                    .youtubeId(lesson.getYoutubeId())
                     .build();
             return lessonRepository.save(l)
                     .flatMap(saved ->
@@ -705,6 +706,10 @@ public class AdminController {
                     if (body.getDurationSec() != null) l.setDurationSec(body.getDurationSec());
                     if (body.getCoverImage() != null && !body.getCoverImage().isBlank()) l.setCoverImage(body.getCoverImage());
                     if (body.getVideoUrl() != null && !body.getVideoUrl().isBlank()) l.setVideoUrl(body.getVideoUrl());
+                    // YouTube ID: null — o'zgarmaydi, bo'sh satr — biriktiruv olib tashlanadi.
+                    if (body.getYoutubeId() != null) {
+                        l.setYoutubeId(body.getYoutubeId().isBlank() ? null : body.getYoutubeId().trim());
+                    }
                     return lessonRepository.save(l);
                 })
                 .map(ApiResponse::ok)

@@ -19,4 +19,6 @@ public class Lesson {
     private Integer durationSec;
     private String coverImage;
     private String videoUrl;
+    /** YouTube unlisted video ID — pullik dars videosi YouTube orqali beriladi. */
+    private String youtubeId;
 }

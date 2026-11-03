@@ -114,6 +114,15 @@ public class LessonServiceImpl implements LessonService {
                             })
                             .defaultIfEmpty("");
 
+                    // youtubeId faqat haqli foydalanuvchiga beriladi: kursga yozilgan — har doim;
+                    // anonim/mehmon/yozilmagan — faqat kursning birinchi darsi uchun
+                    // (getLessonsByCourse'dagi lock mantiqi bilan izchil: orderIndex == 1).
+                    Mono<Boolean> enrolledMono = (userId == null
+                            || uz.sevenEdu.teacherBot.common.util.GuestUtil.isGuest(userId))
+                            ? Mono.just(false)
+                            : userCourseRepository.existsByUserIdAndCourseId(userId, lesson.getCourseId())
+                                    .defaultIfEmpty(false);
+
                     return Mono.zip(
                             vocabularyRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
                             questionRepository.findByLessonId(lessonId).collectList(),
@@ -121,11 +130,16 @@ public class LessonServiceImpl implements LessonService {
                             ulMono,
                             nextLessonIdMono,
                             audiobookRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
-                            teacherNameMono
+                            teacherNameMono,
+                            enrolledMono
                     ).map(tuple -> {
                         Long nextId = tuple.getT5() == 0L ? null : tuple.getT5();
                         UserLesson ul = tuple.getT4();
                         boolean completed = ul.getIsCompleted() != null && ul.getIsCompleted();
+                        boolean enrolled = Boolean.TRUE.equals(tuple.getT8());
+                        boolean firstLesson = lesson.getOrderIndex() != null && lesson.getOrderIndex() == 1;
+                        // Haqli bo'lmaganga youtubeId berilmaydi; videoUrl xatti-harakati o'zgarmagan.
+                        String youtubeId = (enrolled || firstLesson) ? lesson.getYoutubeId() : null;
                         return LessonDetailDto.builder()
                             .id(lesson.getId())
                             .courseId(lesson.getCourseId())
@@ -133,6 +147,7 @@ public class LessonServiceImpl implements LessonService {
                             .description(lesson.getDescription())
                             .coverImage(fileStorageService.toPublicUrl(lesson.getCoverImage()))
                             .videoUrl(fileStorageService.toPublicUrl(lesson.getVideoUrl()))
+                            .youtubeId(youtubeId)
                             .orderIndex(lesson.getOrderIndex())
                             .durationSec(lesson.getDurationSec())
                             .completed(completed)
