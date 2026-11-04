@@ -180,15 +180,22 @@ public class LessonServiceImpl implements LessonService {
         return questionRepository.findByLessonId(lessonId).collectList()
                 .flatMap(questions -> {
                     int correct = 0;
+                    List<SubmitResultDto.ItemResult> items = new java.util.ArrayList<>();
                     for (var q : questions) {
                         String selected = request.getAnswers().get(q.getId());
-                        if (q.getCorrectOption().equalsIgnoreCase(selected)) correct++;
+                        boolean ok = normalizeAnswer(q.getCorrectOption())
+                                .equals(normalizeAnswer(selected));
+                        if (ok) correct++;
+                        items.add(SubmitResultDto.ItemResult.builder()
+                                .id(q.getId()).correct(ok)
+                                .correctAnswer(q.getCorrectOption())
+                                .build());
                     }
                     int total = questions.size();
                     int pct = total > 0 ? (int) Math.round(correct * 100.0 / total) : 0;
                     // Mehmon — natija hisoblanadi, lekin qayd etilmaydi
                     if (uz.sevenEdu.teacherBot.common.util.GuestUtil.isGuest(userId)) {
-                        return Mono.just(SubmitResultDto.from(pct, List.of()));
+                        return Mono.just(SubmitResultDto.from(pct, List.of(), items));
                     }
                     return getOrCreateUserLesson(userId, lessonId)
                             .flatMap(ul -> {
@@ -197,7 +204,7 @@ public class LessonServiceImpl implements LessonService {
                                 ul.setTestScore(best);
                                 return checkAndComplete(ul, lessonId, userId)
                                         .then(awardPoints(userId, "Test — Dars", best / 10 - prev / 10))
-                                        .then(buildResult(pct, userId));
+                                        .then(buildResult(pct, userId, items));
                             });
                 });
     }
@@ -207,15 +214,22 @@ public class LessonServiceImpl implements LessonService {
         return exerciseRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList()
                 .flatMap(exercises -> {
                     int correct = 0;
+                    List<SubmitResultDto.ItemResult> items = new java.util.ArrayList<>();
                     for (var ex : exercises) {
                         String userAnswer = request.getAnswers().get(ex.getId());
-                        if (ex.getCorrectAnswer().equalsIgnoreCase(userAnswer)) correct++;
+                        boolean ok = normalizeAnswer(ex.getCorrectAnswer())
+                                .equals(normalizeAnswer(userAnswer));
+                        if (ok) correct++;
+                        items.add(SubmitResultDto.ItemResult.builder()
+                                .id(ex.getId()).correct(ok)
+                                .correctAnswer(ex.getCorrectAnswer())
+                                .build());
                     }
                     int total = exercises.size();
                     int pct = total > 0 ? (int) Math.round(correct * 100.0 / total) : 0;
                     // Mehmon — natija hisoblanadi, lekin qayd etilmaydi
                     if (uz.sevenEdu.teacherBot.common.util.GuestUtil.isGuest(userId)) {
-                        return Mono.just(SubmitResultDto.from(pct, List.of()));
+                        return Mono.just(SubmitResultDto.from(pct, List.of(), items));
                     }
                     return getOrCreateUserLesson(userId, lessonId)
                             .flatMap(ul -> {
@@ -224,7 +238,7 @@ public class LessonServiceImpl implements LessonService {
                                 ul.setExerciseScore(best);
                                 return checkAndComplete(ul, lessonId, userId)
                                         .then(awardPoints(userId, "Mashq — Dars", best / 10 - prev / 10))
-                                        .then(buildResult(pct, userId));
+                                        .then(buildResult(pct, userId, items));
                             });
                 });
     }
@@ -258,6 +272,24 @@ public class LessonServiceImpl implements LessonService {
     }
 
     // ── Private helpers ──────────────────────────────────────────
+
+    /**
+     * Javoblarni solishtirishdan oldin normalizatsiya: bosh/oxiridagi probellar,
+     * ichki ko'p probellar, turli apostrof belgilar (' ʻ ʼ ') va katta-kichik harf
+     * farqlari e'tiborga olinmaydi — admin kiritgan kontentdagi mayda farqlar
+     * o'quvchining to'g'ri javobini xato qilib yubormasin.
+     */
+    private static String normalizeAnswer(String s) {
+        if (s == null) return "";
+        return s.trim()
+                .replaceAll("\\s+", " ")
+                .replace('‘', '\'')
+                .replace('’', '\'')
+                .replace('ʻ', '\'')
+                .replace('ʼ', '\'')
+                .replace('`', '\'')
+                .toLowerCase();
+    }
 
     private Mono<UserLesson> getOrCreateUserLesson(Long userId, Long lessonId) {
         return userLessonRepository.findByUserIdAndLessonId(userId, lessonId)
@@ -322,6 +354,11 @@ public class LessonServiceImpl implements LessonService {
     }
 
     private Mono<SubmitResultDto> buildResult(int pct, Long userId) {
+        return buildResult(pct, userId, List.of());
+    }
+
+    private Mono<SubmitResultDto> buildResult(int pct, Long userId,
+                                              List<SubmitResultDto.ItemResult> items) {
         return achievementService.checkAndUnlock(userId)
                 .map(achievements -> {
                     var achDtos = achievements.stream().map(a ->
@@ -334,7 +371,7 @@ public class LessonServiceImpl implements LessonService {
                                     .bonusPoints(a.getBonusPoints() != null ? a.getBonusPoints() : 0)
                                     .build()
                     ).toList();
-                    return SubmitResultDto.from(pct, achDtos);
+                    return SubmitResultDto.from(pct, achDtos, items);
                 });
     }
 

@@ -23,6 +23,7 @@ public class RatingDto {
         public static class PointEntry {
             private String activity;
             private int amount;
+            private String createdAt; // ISO datetime — mobil tarixda sana ko'rsatish uchun
         }
     }
 

@@ -51,7 +51,7 @@ server:
   shutdown: graceful            # rolling deploy — ochiq so'rovlar tugashini kutadi
   netty:
     connection-timeout: 5s
-    idle-timeout: 30s           # sekin/osilgan clientlar connection'ni ushlab turmasin
+    idle-timeout: 120s          # video pleyer pauzada ham ulanishni darhol uzmasin (rebuffer kamayadi)
 management:
   endpoints:
     web:

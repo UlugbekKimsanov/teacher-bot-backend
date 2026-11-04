@@ -12,6 +12,16 @@ public class SubmitResultDto {
     private int stars;          // 0: <50%, 1: 50-70%, 2: 70-90%, 3: 90%+
     private boolean passed;     // score >= 50
     private List<UnlockedAchievement> achievements;
+    /** Har bir savol/mashq bo'yicha natija — xatolarni qizil/yashil ko'rsatish uchun. */
+    private List<ItemResult> items;
+
+    @Data
+    @Builder
+    public static class ItemResult {
+        private Long id;
+        private boolean correct;
+        private String correctAnswer; // test: 'A'..'D' harfi; mashq: to'g'ri javob matni
+    }
 
     @Data
     @Builder
@@ -25,6 +35,11 @@ public class SubmitResultDto {
     }
 
     public static SubmitResultDto from(int percentScore, List<UnlockedAchievement> achievements) {
+        return from(percentScore, achievements, List.of());
+    }
+
+    public static SubmitResultDto from(int percentScore, List<UnlockedAchievement> achievements,
+                                       List<ItemResult> items) {
         int stars;
         if (percentScore >= 90) stars = 3;
         else if (percentScore >= 70) stars = 2;
@@ -37,6 +52,7 @@ public class SubmitResultDto {
                 .stars(stars)
                 .passed(percentScore >= 50)
                 .achievements(achievements != null ? achievements : List.of())
+                .items(items != null ? items : List.of())
                 .build();
     }
 }

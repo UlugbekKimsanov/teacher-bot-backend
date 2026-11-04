@@ -69,7 +69,21 @@ public class ChatService {
                                 .build();
                         return notificationRepository.save(n).thenReturn(dto);
                     }
-                    return Mono.just(dto);
+                    // O'quvchi yozganda — kursning barcha ustozlariga bildirishnoma,
+                    // aks holda ustoz chatni ochmaguncha savoldan bexabar qoladi.
+                    return userFullName(studentId)
+                            .flatMapMany(studentName -> courseTeacherRepository
+                                    .findByCourseId(courseId)
+                                    .flatMap(ct -> notificationRepository.save(Notification.builder()
+                                            .userId(ct.getTeacherId())
+                                            .title("O'quvchidan savol: " + studentName)
+                                            .body(notifBody(text, mediaType))
+                                            .type("CHAT")
+                                            .refId(saved.getCourseId())
+                                            .isRead(false)
+                                            .createdAt(LocalDateTime.now())
+                                            .build())))
+                            .then(Mono.just(dto));
                 });
     }
 

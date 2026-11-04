@@ -58,7 +58,9 @@ public class RatingServiceImpl implements RatingService {
         Mono<java.util.List<RatingDto.PointsSummary.PointEntry>> entriesMono =
                 pointsRepository.findTop100ByUserIdOrderByCreatedAtDesc(userId)
                         .map(p -> RatingDto.PointsSummary.PointEntry.builder()
-                                .activity(p.getActivity()).amount(p.getAmount()).build())
+                                .activity(p.getActivity()).amount(p.getAmount())
+                                .createdAt(p.getCreatedAt() != null ? p.getCreatedAt().toString() : null)
+                                .build())
                         .collectList();
         Mono<Long> totalMono = pointsRepository.sumByUserId(userId);
         return Mono.zip(entriesMono, totalMono)
