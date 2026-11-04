@@ -5,6 +5,8 @@ import java.util.Map;
 
 @Data
 public class ExerciseSubmitRequest {
-    // exerciseId -> user's answer
+    /** Eski mijozlar: exerciseId → javob (mashqning birinchi bo'shlig'i uchun). */
     private Map<Long, String> answers;
+    /** Yangi mijozlar: blankId → javob (har bo'shliq alohida). */
+    private Map<Long, String> blankAnswers;
 }

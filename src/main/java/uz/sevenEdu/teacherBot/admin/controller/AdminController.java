@@ -45,7 +45,7 @@ public class AdminController {
     private final LessonRepository lessonRepository;
     private final VocabularyRepository vocabularyRepository;
     private final QuestionRepository questionRepository;
-    private final ExerciseRepository exerciseRepository;
+    private final uz.sevenEdu.teacherBot.lesson.service.ExerciseAdminService exerciseAdminService;
     private final TestRepository testRepository;
     private final BooksRepository booksRepository;
     private final uz.sevenEdu.teacherBot.books.service.BooksService booksService;
@@ -851,40 +851,39 @@ public class AdminController {
 
     // ── Exercises CRUD ───────────────────────────────────────────
 
+    // Ko'p bo'shliqli mashqlar: gap ('_' = bo'shliq) + chalg'ituvchilar + har bo'shliqning to'g'ri javobi.
+    // Validatsiya va bo'shliqlarni saqlash ExerciseAdminService da.
+
     @GetMapping("/lessons/{lessonId}/exercises")
-    public Mono<ApiResponse<List<Exercise>>> getExercises(Authentication auth, @PathVariable Long lessonId) {
+    public Mono<ApiResponse<List<uz.sevenEdu.teacherBot.lesson.dto.ExerciseAdminDto>>> getExercises(
+            Authentication auth, @PathVariable Long lessonId) {
         return requireAdmin(auth).then(
-            exerciseRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList().map(ApiResponse::ok)
+            exerciseAdminService.list(lessonId).collectList().map(ApiResponse::ok)
         );
     }
 
     @PostMapping("/lessons/{lessonId}/exercises")
-    public Mono<ApiResponse<Exercise>> createExercise(Authentication auth, @PathVariable Long lessonId, @RequestBody Exercise ex) {
-        ex.setLessonId(lessonId);
+    public Mono<ApiResponse<uz.sevenEdu.teacherBot.lesson.dto.ExerciseAdminDto>> createExercise(
+            Authentication auth, @PathVariable Long lessonId,
+            @RequestBody uz.sevenEdu.teacherBot.lesson.dto.ExerciseUpsertRequest req) {
         return requireAdmin(auth).then(
-            exerciseRepository.save(ex).map(ApiResponse::ok)
+            exerciseAdminService.create(lessonId, req).map(ApiResponse::ok)
         );
     }
 
     @PutMapping("/exercises/{id}")
-    public Mono<ApiResponse<Exercise>> updateExercise(Authentication auth, @PathVariable Long id, @RequestBody Exercise body) {
+    public Mono<ApiResponse<uz.sevenEdu.teacherBot.lesson.dto.ExerciseAdminDto>> updateExercise(
+            Authentication auth, @PathVariable Long id,
+            @RequestBody uz.sevenEdu.teacherBot.lesson.dto.ExerciseUpsertRequest req) {
         return requireAdmin(auth).then(
-            exerciseRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Mashq topilmadi")))
-                .flatMap(ex -> {
-                    if (body.getSentence() != null) ex.setSentence(body.getSentence());
-                    if (body.getOptions() != null) ex.setOptions(body.getOptions());
-                    if (body.getCorrectAnswer() != null) ex.setCorrectAnswer(body.getCorrectAnswer());
-                    return exerciseRepository.save(ex);
-                })
-                .map(ApiResponse::ok)
+            exerciseAdminService.update(id, req).map(ApiResponse::ok)
         );
     }
 
     @DeleteMapping("/exercises/{id}")
     public Mono<ApiResponse<Void>> deleteExercise(Authentication auth, @PathVariable Long id) {
         return requireAdmin(auth).then(
-            exerciseRepository.deleteById(id).then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+            exerciseAdminService.delete(id).then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
         );
     }
 

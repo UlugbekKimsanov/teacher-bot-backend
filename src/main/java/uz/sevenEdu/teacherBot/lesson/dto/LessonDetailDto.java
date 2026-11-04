@@ -61,8 +61,12 @@ public class LessonDetailDto {
     public static class ExerciseDto {
         private Long id;
         private String sentence;
+        /** Barcha variantlar (to'g'ri javoblar + chalg'ituvchilar), vergul bilan — so'zlar banki uchun. */
         private String options;
+        /** Eski mijozlar uchun: birinchi bo'shliqning to'g'ri javobi. */
         private String correctAnswer;
         private Integer orderIndex;
+        /** Gapdagi '_' tartibida bo'shliqlar va ularning to'g'ri javoblari. */
+        private List<ExerciseBlankDto> blanks;
     }
 }

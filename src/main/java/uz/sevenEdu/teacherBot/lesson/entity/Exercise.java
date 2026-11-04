@@ -15,7 +15,8 @@ public class Exercise {
     private Long lessonId;
     private String name;
     private Integer orderIndex;
+    /** Gap; har tushib qolgan so'z o'rnida '_' (bir nechta bo'lishi mumkin). */
     private String sentence;
+    /** Chalg'ituvchi so'zlar, vergul bilan. To'g'ri javoblar — {@link ExerciseBlank} jadvalida. */
     private String options;
-    private String correctAnswer;
 }

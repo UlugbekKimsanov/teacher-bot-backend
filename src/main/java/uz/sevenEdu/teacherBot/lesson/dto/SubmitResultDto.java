@@ -18,7 +18,11 @@ public class SubmitResultDto {
     @Data
     @Builder
     public static class ItemResult {
+        /** test: savol id; mashq: bo'shliq (blank) id. */
         private Long id;
+        /** Faqat mashq: bo'shliq qaysi mashqqa tegishli va gapdagi tartibi. */
+        private Long exerciseId;
+        private Integer position;
         private boolean correct;
         private String correctAnswer; // test: 'A'..'D' harfi; mashq: to'g'ri javob matni
     }

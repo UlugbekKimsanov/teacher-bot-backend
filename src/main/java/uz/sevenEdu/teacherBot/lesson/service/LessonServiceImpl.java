@@ -8,13 +8,17 @@ import uz.sevenEdu.teacherBot.common.exception.NotFoundException;
 import uz.sevenEdu.teacherBot.common.service.FileStorageService;
 import uz.sevenEdu.teacherBot.course.repository.UserCourseRepository;
 import uz.sevenEdu.teacherBot.lesson.dto.*;
+import uz.sevenEdu.teacherBot.lesson.entity.Exercise;
+import uz.sevenEdu.teacherBot.lesson.entity.ExerciseBlank;
 import uz.sevenEdu.teacherBot.lesson.entity.Lesson;
 import uz.sevenEdu.teacherBot.lesson.entity.TeacherQuestion;
 import uz.sevenEdu.teacherBot.lesson.entity.UserLesson;
 import uz.sevenEdu.teacherBot.lesson.repository.*;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -26,6 +30,7 @@ public class LessonServiceImpl implements LessonService {
     private final VocabularyRepository vocabularyRepository;
     private final QuestionRepository questionRepository;
     private final ExerciseRepository exerciseRepository;
+    private final ExerciseBlankRepository exerciseBlankRepository;
     private final TeacherQuestionRepository teacherQuestionRepository;
     private final UserLessonRepository userLessonRepository;
     private final UserCourseRepository userCourseRepository;
@@ -126,7 +131,7 @@ public class LessonServiceImpl implements LessonService {
                     return Mono.zip(
                             vocabularyRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
                             questionRepository.findByLessonId(lessonId).collectList(),
-                            exerciseRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
+                            loadExerciseDtos(lessonId),
                             ulMono,
                             nextLessonIdMono,
                             audiobookRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
@@ -161,9 +166,7 @@ public class LessonServiceImpl implements LessonService {
                             .questions(tuple.getT2().stream().map(q -> LessonDetailDto.QuestionDto.builder()
                                     .id(q.getId()).questionText(q.getQuestionText())
                                     .optionA(q.getOptionA()).optionB(q.getOptionB()).optionC(q.getOptionC()).optionD(q.getOptionD()).build()).toList())
-                            .exercises(tuple.getT3().stream().map(e -> LessonDetailDto.ExerciseDto.builder()
-                                    .id(e.getId()).sentence(e.getSentence()).options(e.getOptions())
-                                    .correctAnswer(e.getCorrectAnswer()).orderIndex(e.getOrderIndex()).build()).toList())
+                            .exercises(tuple.getT3())
                             .audiobooks(tuple.getT6().stream().map(a -> LessonDetailDto.AudiobookDto.builder()
                                     .id(a.getId()).title(a.getTitle())
                                     .description(a.getDescription())
@@ -209,24 +212,73 @@ public class LessonServiceImpl implements LessonService {
                 });
     }
 
+    /**
+     * Mashqlar + bo'shliqlari → student DTO.
+     * {@code options} eski ilovalar ham ishlashi uchun to'g'ri javoblarni ham o'z ichiga oladi.
+     */
+    private Mono<List<LessonDetailDto.ExerciseDto>> loadExerciseDtos(Long lessonId) {
+        return exerciseRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList()
+                .flatMap(exercises -> exerciseBlankRepository
+                        .findGroupedByExerciseIds(exercises.stream().map(Exercise::getId).toList())
+                        .map(byEx -> exercises.stream().map(e -> {
+                            List<ExerciseBlank> blanks = byEx.getOrDefault(e.getId(), List.of());
+                            return LessonDetailDto.ExerciseDto.builder()
+                                    .id(e.getId())
+                                    .sentence(e.getSentence())
+                                    .options(ExerciseAdminService.studentOptions(e.getOptions(), blanks))
+                                    .correctAnswer(blanks.isEmpty() ? "" : blanks.get(0).getCorrectAnswer())
+                                    .orderIndex(e.getOrderIndex())
+                                    .blanks(blanks.stream().map(ExerciseBlankDto::from).toList())
+                                    .build();
+                        }).toList()));
+    }
+
+    /** Mashq baholash natijasi: foiz + har bo'shliq bo'yicha natija. */
+    private record ExerciseGrade(int pct, List<SubmitResultDto.ItemResult> items) {}
+
+    /**
+     * Har bo'shliq alohida baholanadi. Yangi mijoz {@code blankAnswers} (blankId → javob),
+     * eski mijoz {@code answers} (exerciseId → javob, faqat birinchi bo'shliq) yuboradi.
+     */
+    private ExerciseGrade gradeExercises(List<Exercise> exercises,
+                                         Map<Long, List<ExerciseBlank>> byEx,
+                                         ExerciseSubmitRequest request) {
+        Map<Long, String> byBlank = request.getBlankAnswers() != null ? request.getBlankAnswers() : Map.of();
+        Map<Long, String> byExercise = request.getAnswers() != null ? request.getAnswers() : Map.of();
+        int correct = 0;
+        int total = 0;
+        List<SubmitResultDto.ItemResult> items = new ArrayList<>();
+        for (var ex : exercises) {
+            for (var b : byEx.getOrDefault(ex.getId(), List.of())) {
+                total++;
+                String userAnswer = byBlank.get(b.getId());
+                if (userAnswer == null && Integer.valueOf(0).equals(b.getPosition())) {
+                    userAnswer = byExercise.get(ex.getId());
+                }
+                boolean ok = normalizeAnswer(b.getCorrectAnswer()).equals(normalizeAnswer(userAnswer));
+                if (ok) correct++;
+                items.add(SubmitResultDto.ItemResult.builder()
+                        .id(b.getId())
+                        .exerciseId(ex.getId())
+                        .position(b.getPosition())
+                        .correct(ok)
+                        .correctAnswer(b.getCorrectAnswer())
+                        .build());
+            }
+        }
+        int pct = total > 0 ? (int) Math.round(correct * 100.0 / total) : 0;
+        return new ExerciseGrade(pct, items);
+    }
+
     @Override
     public Mono<SubmitResultDto> submitExercise(Long lessonId, Long userId, ExerciseSubmitRequest request) {
         return exerciseRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList()
-                .flatMap(exercises -> {
-                    int correct = 0;
-                    List<SubmitResultDto.ItemResult> items = new java.util.ArrayList<>();
-                    for (var ex : exercises) {
-                        String userAnswer = request.getAnswers().get(ex.getId());
-                        boolean ok = normalizeAnswer(ex.getCorrectAnswer())
-                                .equals(normalizeAnswer(userAnswer));
-                        if (ok) correct++;
-                        items.add(SubmitResultDto.ItemResult.builder()
-                                .id(ex.getId()).correct(ok)
-                                .correctAnswer(ex.getCorrectAnswer())
-                                .build());
-                    }
-                    int total = exercises.size();
-                    int pct = total > 0 ? (int) Math.round(correct * 100.0 / total) : 0;
+                .flatMap(exercises -> exerciseBlankRepository
+                        .findGroupedByExerciseIds(exercises.stream().map(Exercise::getId).toList())
+                        .map(byEx -> gradeExercises(exercises, byEx, request)))
+                .flatMap(grade -> {
+                    int pct = grade.pct();
+                    List<SubmitResultDto.ItemResult> items = grade.items();
                     // Mehmon — natija hisoblanadi, lekin qayd etilmaydi
                     if (uz.sevenEdu.teacherBot.common.util.GuestUtil.isGuest(userId)) {
                         return Mono.just(SubmitResultDto.from(pct, List.of(), items));
