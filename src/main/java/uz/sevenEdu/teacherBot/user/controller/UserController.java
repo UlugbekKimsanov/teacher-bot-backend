@@ -2,9 +2,13 @@ package uz.sevenEdu.teacherBot.user.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.codec.multipart.FilePart;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
+import uz.sevenEdu.teacherBot.common.exception.ForbiddenException;
+import uz.sevenEdu.teacherBot.common.exception.NotFoundException;
 import uz.sevenEdu.teacherBot.common.response.ApiResponse;
+import uz.sevenEdu.teacherBot.user.enums.UserRole;
 import uz.sevenEdu.teacherBot.user.dto.AuthResponse;
 import uz.sevenEdu.teacherBot.user.dto.UpdateProfileRequest;
 import uz.sevenEdu.teacherBot.user.entity.BaseUser;
@@ -25,6 +29,7 @@ public class UserController {
 
     private final UserRepository userRepository;
     private final JwtUtil jwtUtil;
+    private final DatabaseClient databaseClient;
 
     @PutMapping("/profile")
     public Mono<ApiResponse<AuthResponse>> updateProfile(
@@ -82,6 +87,46 @@ public class UserController {
             return Mono.error(new uz.sevenEdu.teacherBot.common.exception.NotFoundException("Fayl topilmadi"));
         }
         return Mono.just(new org.springframework.core.io.FileSystemResource(path));
+    }
+
+    /**
+     * Foydalanuvchi o'z akkauntini butunlay o'chiradi (Google Play talabi).
+     * Bog'liq ma'lumotlar (kurslar, progress, chat, bildirishnomalar) FK CASCADE
+     * orqali o'chadi; sotuv yozuvlari anonimlanib qoladi (V35).
+     * Ustoz/admin akkauntlari faqat admin panel orqali o'chiriladi.
+     */
+    @DeleteMapping("/me")
+    public Mono<ApiResponse<Void>> deleteMyAccount(@RequestHeader("Authorization") String authHeader) {
+        Long userId = extractUserId(authHeader);
+        return userRepository.findById(userId)
+                .switchIfEmpty(Mono.error(new NotFoundException("Foydalanuvchi topilmadi")))
+                .flatMap(user -> {
+                    if (user.getRole() != UserRole.STUDENT) {
+                        return Mono.error(new ForbiddenException(
+                                "Ustoz va admin akkauntlari administrator orqali o'chiriladi"));
+                    }
+                    return databaseClient.sql("UPDATE sale_records SET buyer_name = NULL WHERE user_id = :id")
+                            .bind("id", userId)
+                            .then()
+                            .then(userRepository.deleteById(userId))
+                            .then(deleteAvatarFile(user.getAvatarUrl()));
+                })
+                .then(Mono.just(ApiResponse.ok("Akkaunt o'chirildi", (Void) null)));
+    }
+
+    private Mono<Void> deleteAvatarFile(String avatarUrl) {
+        if (avatarUrl == null || !avatarUrl.startsWith("avatars/")) return Mono.empty();
+        return Mono.fromRunnable(() -> {
+                    try {
+                        Path base = Paths.get("./storage/avatars").toAbsolutePath().normalize();
+                        Path path = base.resolve(avatarUrl.substring("avatars/".length())).normalize();
+                        if (path.startsWith(base)) Files.deleteIfExists(path);
+                    } catch (IOException ignored) {
+                        // Fayl o'chmasa ham akkaunt o'chirilgan hisoblanadi
+                    }
+                })
+                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                .then();
     }
 
     private Long extractUserId(String authHeader) {
