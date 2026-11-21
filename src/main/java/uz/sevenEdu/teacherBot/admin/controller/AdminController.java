@@ -12,6 +12,9 @@ import uz.sevenEdu.teacherBot.books.repository.BooksRepository;
 import uz.sevenEdu.teacherBot.books.repository.SaleRecordRepository;
 import uz.sevenEdu.teacherBot.chat.entity.CourseTeacher;
 import uz.sevenEdu.teacherBot.chat.repository.CourseTeacherRepository;
+import uz.sevenEdu.teacherBot.common.exception.BadRequestException;
+import uz.sevenEdu.teacherBot.common.exception.ForbiddenException;
+import uz.sevenEdu.teacherBot.common.exception.NotFoundException;
 import uz.sevenEdu.teacherBot.common.response.ApiResponse;
 import uz.sevenEdu.teacherBot.common.service.FileStorageService;
 import uz.sevenEdu.teacherBot.news.entity.News;
@@ -29,6 +32,7 @@ import uz.sevenEdu.teacherBot.user.repository.UserRepository;
 import uz.sevenEdu.teacherBot.user.util.PhoneNumberUtil;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +66,7 @@ public class AdminController {
     private final uz.sevenEdu.teacherBot.breakmusic.repository.BreakGroupRepository breakGroupRepository;
     private final uz.sevenEdu.teacherBot.breakmusic.repository.BreakTrackRepository breakTrackRepository;
     private final uz.sevenEdu.teacherBot.lesson.repository.AudiobookRepository audiobookRepository;
+    private final uz.sevenEdu.teacherBot.notification.repository.AdminNotificationLogRepository adminNotificationLogRepository;
     private final PasswordEncoder passwordEncoder;
 
     // ── Dashboard ──────────────────────────────────────────────
@@ -249,27 +254,42 @@ public class AdminController {
     @PostMapping("/users")
     public Mono<ApiResponse<BaseUser>> createUser(Authentication auth, @RequestBody Map<String, String> body) {
         return getAdminUser(auth).flatMap(admin -> {
-            UserRole newRole = UserRole.valueOf(body.getOrDefault("role", "STUDENT"));
+            UserRole newRole = parseRole(body.get("role"), UserRole.STUDENT);
 
             // isDefault=false admin faqat TEACHER va STUDENT yarata oladi
             boolean isDefault = Boolean.TRUE.equals(admin.getIsDefault());
-            if (!isDefault && (newRole == UserRole.ADMIN || newRole == UserRole.HEAD_ADMIN)) {
-                return Mono.error(new RuntimeException("Sizda admin yaratish huquqi yo'q"));
+            if (!isDefault && isAdminRole(newRole)) {
+                return Mono.error(new ForbiddenException("Sizda admin yaratish huquqi yo'q"));
+            }
+
+            String firstName = trimToNull(body.get("firstName"));
+            if (firstName == null) return Mono.error(new BadRequestException("Ism majburiy"));
+            String email = normalizeEmail(body.get("email"));
+            String phone = PhoneNumberUtil.normalizeOptionalUzbekPhone(body.get("phone"));
+            if (email == null && phone == null) {
+                return Mono.error(new BadRequestException("Email yoki telefon raqam majburiy"));
+            }
+            String password = body.get("password");
+            if (password == null || password.length() < MIN_PASSWORD_LENGTH) {
+                return Mono.error(new BadRequestException(
+                        "Parol kamida " + MIN_PASSWORD_LENGTH + " belgidan iborat bo'lishi kerak"));
             }
 
             BaseUser user = BaseUser.builder()
-                    .firstName(body.get("firstName"))
-                    .lastName(body.get("lastName"))
-                    .email(body.get("email"))
-                    .phone(PhoneNumberUtil.normalizeOptionalUzbekPhone(body.get("phone")))
-                    .password(passwordEncoder.encode(body.getOrDefault("password", "password")))
+                    .firstName(firstName)
+                    .lastName(trimToNull(body.get("lastName")))
+                    .email(email)
+                    .phone(phone)
+                    .password(passwordEncoder.encode(password))
                     .role(newRole)
-                    .specialization(body.get("specialization"))
+                    .specialization(trimToNull(body.get("specialization")))
                     .isDefault(false) // yangi admin har doim isDefault=false
                     .ball(0L)
                     .createdAt(LocalDateTime.now())
                     .build();
-            return userRepository.save(user).map(ApiResponse::ok);
+            return ensureContactsFree(email, phone, null)
+                    .then(Mono.defer(() -> userRepository.save(user)))
+                    .map(ApiResponse::ok);
         });
     }
 
@@ -277,6 +297,7 @@ public class AdminController {
      * Foydalanuvchini tahrirlash.
      * isDefault=true admin: barcha userlarni tahrirlashi mumkin (o'zidan tashqari).
      * isDefault=false admin: faqat TEACHER va STUDENT ni tahrirlashi mumkin.
+     * "password" yuborilsa (kamida 6 belgi) — parol almashtiriladi.
      */
     @PutMapping("/users/{id}")
     public Mono<ApiResponse<BaseUser>> updateUser(Authentication auth, @PathVariable Long id, @RequestBody Map<String, String> body) {
@@ -285,35 +306,58 @@ public class AdminController {
 
             // O'zini tahrirlashga ruxsat yo'q
             if (admin.getId().equals(id)) {
-                return Mono.error(new RuntimeException("O'zingizni tahrirlash mumkin emas"));
+                return Mono.error(new BadRequestException("O'zingizni tahrirlash mumkin emas"));
             }
 
             return userRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Foydalanuvchi topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Foydalanuvchi topilmadi")))
                 .flatMap(user -> {
+                    if (isSystemGuest(user)) {
+                        return Mono.error(new BadRequestException("Mehmon tizim akkauntini o'zgartirib bo'lmaydi"));
+                    }
                     // isDefault=false admin faqat teacher/student tahrirlashi mumkin
-                    if (!isDefault && (user.getRole() == UserRole.ADMIN || user.getRole() == UserRole.HEAD_ADMIN)) {
-                        return Mono.error(new RuntimeException("Sizda admin tahrirlash huquqi yo'q"));
+                    if (!isDefault && isAdminRole(user.getRole())) {
+                        return Mono.error(new ForbiddenException("Sizda admin tahrirlash huquqi yo'q"));
                     }
 
-                    if (body.containsKey("firstName")) user.setFirstName(body.get("firstName"));
-                    if (body.containsKey("lastName")) user.setLastName(body.get("lastName"));
-                    if (body.containsKey("email")) user.setEmail(body.get("email"));
+                    if (body.containsKey("firstName")) {
+                        String firstName = trimToNull(body.get("firstName"));
+                        if (firstName == null) return Mono.error(new BadRequestException("Ism majburiy"));
+                        user.setFirstName(firstName);
+                    }
+                    if (body.containsKey("lastName")) user.setLastName(trimToNull(body.get("lastName")));
+                    if (body.containsKey("email")) user.setEmail(normalizeEmail(body.get("email")));
                     if (body.containsKey("phone")) {
                         user.setPhone(PhoneNumberUtil.normalizeOptionalUzbekPhone(body.get("phone")));
                     }
-                    if (body.containsKey("specialization")) user.setSpecialization(body.get("specialization"));
+                    if (body.containsKey("specialization")) user.setSpecialization(trimToNull(body.get("specialization")));
 
                     // Rolni o'zgartirish
                     if (body.containsKey("role")) {
-                        UserRole newRole = UserRole.valueOf(body.get("role"));
-                        if (!isDefault && (newRole == UserRole.ADMIN || newRole == UserRole.HEAD_ADMIN)) {
-                            return Mono.error(new RuntimeException("Sizda admin roli berish huquqi yo'q"));
+                        UserRole newRole = parseRole(body.get("role"), null);
+                        if (!isDefault && isAdminRole(newRole)) {
+                            return Mono.error(new ForbiddenException("Sizda admin roli berish huquqi yo'q"));
+                        }
+                        if (Boolean.TRUE.equals(user.getIsDefault()) && newRole != UserRole.ADMIN) {
+                            return Mono.error(new BadRequestException("Bosh adminning rolini o'zgartirib bo'lmaydi"));
                         }
                         user.setRole(newRole);
                     }
 
-                    return userRepository.save(user);
+                    String password = body.get("password");
+                    if (password != null && !password.isEmpty()) {
+                        if (password.length() < MIN_PASSWORD_LENGTH) {
+                            return Mono.error(new BadRequestException(
+                                    "Parol kamida " + MIN_PASSWORD_LENGTH + " belgidan iborat bo'lishi kerak"));
+                        }
+                        user.setPassword(passwordEncoder.encode(password));
+                    }
+
+                    return ensureContactsFree(
+                                    body.containsKey("email") ? user.getEmail() : null,
+                                    body.containsKey("phone") ? user.getPhone() : null,
+                                    id)
+                            .then(Mono.defer(() -> userRepository.save(user)));
                 })
                 .map(ApiResponse::ok);
         });
@@ -323,6 +367,7 @@ public class AdminController {
      * Foydalanuvchini o'chirish.
      * isDefault=true admin: barcha userlarni o'chirishi mumkin (o'zidan tashqari).
      * isDefault=false admin: faqat TEACHER va STUDENT ni o'chirishi mumkin.
+     * Mehmon tizim akkaunti va bosh admin hech qachon o'chirilmaydi.
      */
     @DeleteMapping("/users/{id}")
     public Mono<ApiResponse<Void>> deleteUser(Authentication auth, @PathVariable Long id) {
@@ -330,14 +375,21 @@ public class AdminController {
             boolean isDefault = Boolean.TRUE.equals(admin.getIsDefault());
 
             if (admin.getId().equals(id)) {
-                return Mono.error(new RuntimeException("O'zingizni o'chirish mumkin emas"));
+                return Mono.error(new BadRequestException("O'zingizni o'chirish mumkin emas"));
             }
 
             return userRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Foydalanuvchi topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Foydalanuvchi topilmadi")))
                 .flatMap(user -> {
-                    if (!isDefault && (user.getRole() == UserRole.ADMIN || user.getRole() == UserRole.HEAD_ADMIN)) {
-                        return Mono.error(new RuntimeException("Sizda admin o'chirish huquqi yo'q"));
+                    if (isSystemGuest(user)) {
+                        // Mobil ilovadagi "Mehmon sifatida kirish" shu akkauntga bog'liq
+                        return Mono.error(new BadRequestException("Mehmon tizim akkauntini o'chirib bo'lmaydi"));
+                    }
+                    if (Boolean.TRUE.equals(user.getIsDefault())) {
+                        return Mono.error(new BadRequestException("Bosh adminni o'chirib bo'lmaydi"));
+                    }
+                    if (!isDefault && isAdminRole(user.getRole())) {
+                        return Mono.error(new ForbiddenException("Sizda admin o'chirish huquqi yo'q"));
                     }
                     return userRepository.deleteById(id)
                             .then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)));
@@ -363,7 +415,7 @@ public class AdminController {
                                                          @RequestParam boolean enabled) {
         return requireAdmin(auth).then(
             languageRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Til topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Til topilmadi")))
                 .flatMap(lang -> {
                     lang.setEnabled(enabled);
                     return languageRepository.save(lang);
@@ -378,7 +430,8 @@ public class AdminController {
     public Mono<ApiResponse<List<uz.sevenEdu.teacherBot.breakmusic.entity.BreakGroup>>> getBreakGroups(Authentication auth) {
         return requireAdmin(auth).then(
             breakGroupRepository.findAllByOrderByOrderIndexAsc()
-                .flatMap(group -> breakTrackRepository.findByGroupIdOrderById(group.getId())
+                // concatMap — guruhlar tartibi (order_index) saqlanadi
+                .concatMap(group -> breakTrackRepository.findByGroupIdOrderById(group.getId())
                         .map(t -> { t.setFilePath(fileStorageService.toPublicUrl(t.getFilePath())); return t; })
                         .collectList()
                         .map(tracks -> {
@@ -390,13 +443,76 @@ public class AdminController {
         );
     }
 
+    /** Yangi guruh yaratish: name (majburiy), icon (ixtiyoriy emoji). Ro'yxat oxiriga qo'shiladi. */
+    @PostMapping("/break-groups")
+    public Mono<ApiResponse<uz.sevenEdu.teacherBot.breakmusic.entity.BreakGroup>> createBreakGroup(
+            Authentication auth, @RequestBody Map<String, Object> body) {
+        return requireAdmin(auth).then(Mono.defer(() -> {
+            String name = breakGroupName(body.get("name"));
+            String icon = breakGroupIcon(body.get("icon"));
+            return breakGroupRepository.findAllByOrderByOrderIndexAsc().collectList()
+                .flatMap(all -> {
+                    int nextOrder = all.stream()
+                            .mapToInt(g -> g.getOrderIndex() != null ? g.getOrderIndex() : 0)
+                            .max().orElse(0) + 1;
+                    return breakGroupRepository.save(uz.sevenEdu.teacherBot.breakmusic.entity.BreakGroup.builder()
+                            .name(name).icon(icon).orderIndex(nextOrder).build());
+                })
+                .map(g -> { g.setTracks(List.of()); return ApiResponse.ok(g); });
+        }));
+    }
+
+    /** Guruhni tahrirlash — faqat yuborilgan maydonlar (name, icon, orderIndex) o'zgaradi. */
+    @PutMapping("/break-groups/{id}")
+    public Mono<ApiResponse<uz.sevenEdu.teacherBot.breakmusic.entity.BreakGroup>> updateBreakGroup(
+            Authentication auth, @PathVariable Long id, @RequestBody Map<String, Object> body) {
+        return requireAdmin(auth).then(
+            breakGroupRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Guruh topilmadi")))
+                .flatMap(g -> {
+                    if (body.containsKey("name")) g.setName(breakGroupName(body.get("name")));
+                    if (body.containsKey("icon")) g.setIcon(breakGroupIcon(body.get("icon")));
+                    if (body.get("orderIndex") != null) {
+                        try {
+                            g.setOrderIndex(Integer.valueOf(body.get("orderIndex").toString()));
+                        } catch (NumberFormatException e) {
+                            return Mono.error(new BadRequestException("orderIndex butun son bo'lishi kerak"));
+                        }
+                    }
+                    return breakGroupRepository.save(g);
+                })
+                .map(g -> {
+                    g.setBackgroundImage(fileStorageService.toPublicUrl(g.getBackgroundImage()));
+                    return ApiResponse.ok(g);
+                })
+        );
+    }
+
+    /** Guruhni o'chirish — treklari (DB cascade) va barcha fayllari bilan birga. */
+    @DeleteMapping("/break-groups/{id}")
+    public Mono<ApiResponse<Void>> deleteBreakGroup(Authentication auth, @PathVariable Long id) {
+        return requireAdmin(auth).then(
+            breakGroupRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Guruh topilmadi")))
+                .flatMap(g -> breakTrackRepository.findByGroupIdOrderById(id).collectList()
+                    .flatMap(tracks -> {
+                        List<String> files = new ArrayList<>();
+                        if (g.getBackgroundImage() != null) files.add(g.getBackgroundImage());
+                        tracks.forEach(t -> { if (t.getFilePath() != null) files.add(t.getFilePath()); });
+                        return breakGroupRepository.deleteById(id)
+                                .then(fileStorageService.deleteStoredFiles(files));
+                    }))
+                .then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+        );
+    }
+
     /** Guruh fon rasmini yuklash. */
     @PostMapping(value = "/break-groups/{id}/upload-bg", consumes = "multipart/form-data")
     public Mono<ApiResponse<uz.sevenEdu.teacherBot.breakmusic.entity.BreakGroup>> uploadBreakBg(
             Authentication auth, @PathVariable Long id, @RequestPart("file") FilePart file) {
         return requireAdmin(auth).then(
             breakGroupRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Guruh topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Guruh topilmadi")))
                 .flatMap(g -> fileStorageService.saveBreakBackground(id, file, g.getBackgroundImage())
                     .flatMap(path -> { g.setBackgroundImage(path); return breakGroupRepository.save(g); }))
                 .map(ApiResponse::ok)
@@ -411,7 +527,7 @@ public class AdminController {
             @RequestParam(required = false) String title) {
         return requireAdmin(auth).then(
             breakGroupRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Guruh topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Guruh topilmadi")))
                 .flatMap(g -> fileStorageService.saveBreakTrack(id, file)
                     .flatMap(path -> breakTrackRepository.save(
                             uz.sevenEdu.teacherBot.breakmusic.entity.BreakTrack.builder()
@@ -427,7 +543,10 @@ public class AdminController {
     @DeleteMapping("/break-tracks/{id}")
     public Mono<ApiResponse<Void>> deleteBreakTrack(Authentication auth, @PathVariable Long id) {
         return requireAdmin(auth).then(
-            breakTrackRepository.deleteById(id).then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+            breakTrackRepository.findById(id)
+                .flatMap(t -> breakTrackRepository.deleteById(id)
+                        .then(fileStorageService.deleteStoredFiles(pathsOf(t.getFilePath()))))
+                .then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
         );
     }
 
@@ -441,47 +560,88 @@ public class AdminController {
     @PostMapping("/notifications")
     public Mono<ApiResponse<Map<String, Object>>> sendNotification(Authentication auth,
                                                                    @RequestBody Map<String, Object> body) {
-        return requireAdmin(auth).then(Mono.defer(() -> {
+        return getAdminUser(auth).flatMap(admin -> {
             String target = String.valueOf(body.getOrDefault("target", "ALL")).toUpperCase();
             String title = body.get("title") != null ? body.get("title").toString().trim() : "";
             String text = body.get("body") != null ? body.get("body").toString().trim() : "";
             String image = body.get("image") != null && !body.get("image").toString().isBlank()
                     ? body.get("image").toString().trim() : null; // optional
             if (title.isEmpty() || text.isEmpty()) {
-                return Mono.error(new uz.sevenEdu.teacherBot.common.exception.BadRequestException("Sarlavha va matn majburiy"));
+                return Mono.error(new BadRequestException("Sarlavha va matn majburiy"));
+            }
+            if (title.length() > MAX_NOTIFICATION_TITLE) {
+                return Mono.error(new BadRequestException("Sarlavha " + MAX_NOTIFICATION_TITLE + " belgidan oshmasligi kerak"));
+            }
+            if (text.length() > MAX_NOTIFICATION_BODY) {
+                return Mono.error(new BadRequestException("Matn " + MAX_NOTIFICATION_BODY + " belgidan oshmasligi kerak"));
+            }
+            if (image != null && image.length() > 500) {
+                return Mono.error(new BadRequestException("Rasm havolasi juda uzun"));
             }
 
+            Long logCourseId = null;
             reactor.core.publisher.Flux<Long> userIds;
             switch (target) {
                 case "STUDENTS" -> userIds = userRepository.findByRole("STUDENT").map(BaseUser::getId);
                 case "TEACHERS" -> userIds = userRepository.findByRole("TEACHER").map(BaseUser::getId);
                 case "COURSE" -> {
-                    Long courseId = body.get("courseId") != null
-                            ? Long.valueOf(body.get("courseId").toString()) : null;
-                    if (courseId == null) return Mono.error(new uz.sevenEdu.teacherBot.common.exception.BadRequestException("courseId majburiy"));
+                    Long courseId = toLongOrNull(body.get("courseId"));
+                    if (courseId == null) return Mono.error(new BadRequestException("courseId majburiy"));
+                    logCourseId = courseId;
                     userIds = userCourseRepository.findByCourseId(courseId)
                             .map(uz.sevenEdu.teacherBot.course.entity.UserCourse::getUserId);
                 }
                 case "USERS" -> {
                     Object raw = body.get("userIds");
                     if (!(raw instanceof List<?> list) || list.isEmpty()) {
-                        return Mono.error(new uz.sevenEdu.teacherBot.common.exception.BadRequestException("userIds majburiy"));
+                        return Mono.error(new BadRequestException("userIds majburiy"));
                     }
-                    java.util.List<Long> ids = list.stream()
-                            .map(o -> Long.valueOf(o.toString())).toList();
+                    java.util.List<Long> ids = new ArrayList<>();
+                    for (Object o : list) {
+                        Long uid = toLongOrNull(o);
+                        if (uid == null) return Mono.error(new BadRequestException("userIds noto'g'ri"));
+                        ids.add(uid);
+                    }
                     userIds = reactor.core.publisher.Flux.fromIterable(ids);
                 }
-                default -> userIds = userRepository.findStudentsAndTeachers().map(BaseUser::getId);
+                default -> {
+                    if (!"ALL".equals(target)) {
+                        return Mono.error(new BadRequestException("target noto'g'ri"));
+                    }
+                    userIds = userRepository.findStudentsAndTeachers().map(BaseUser::getId);
+                }
             }
 
+            final Long courseIdForLog = logCourseId;
             return userIds.collectList()
                     .flatMap(ids -> notificationService.sendBulk(ids, title, text, "ADMIN", image)
+                            .flatMap(sent -> adminNotificationLogRepository.save(
+                                            uz.sevenEdu.teacherBot.notification.entity.AdminNotificationLog.builder()
+                                                    .title(title).body(text).image(image)
+                                                    .target(target).courseId(courseIdForLog)
+                                                    .recipientCount(sent.intValue())
+                                                    .sentBy(admin.getId())
+                                                    .createdAt(LocalDateTime.now())
+                                                    .build())
+                                    // Tarixga yozish — ikkilamchi amal: xato bo'lsa ham xabar yuborilgan hisoblanadi
+                                    .onErrorResume(e -> Mono.empty())
+                                    .thenReturn(sent))
                             .map(sent -> {
                                 Map<String, Object> res = new HashMap<>();
                                 res.put("sent", sent);
                                 return ApiResponse.ok("Yuborildi", res);
                             }));
-        }));
+        });
+    }
+
+    /** Yuborilgan bildirishnomalar tarixi — yangidan eskiga (limit: 1..200, standart 50). */
+    @GetMapping("/notifications/history")
+    public Mono<ApiResponse<List<uz.sevenEdu.teacherBot.notification.entity.AdminNotificationLog>>> notificationHistory(
+            Authentication auth, @RequestParam(defaultValue = "50") int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 200));
+        return requireAdmin(auth).then(
+            adminNotificationLogRepository.findRecent(safeLimit).collectList().map(ApiResponse::ok)
+        );
     }
 
     /** Bildirishnoma uchun rasm yuklash (optional). Public URL qaytaradi — keyin /notifications'ga image sifatida yuboriladi. */
@@ -513,7 +673,7 @@ public class AdminController {
             Authentication auth, @PathVariable Long id, @RequestParam boolean enabled) {
         return requireAdmin(auth).then(
             paymentMethodRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("To'lov usuli topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("To'lov usuli topilmadi")))
                 .flatMap(pm -> {
                     pm.setEnabled(enabled);
                     return paymentMethodRepository.save(pm);
@@ -545,17 +705,22 @@ public class AdminController {
 
     @PostMapping("/courses")
     public Mono<ApiResponse<Course>> createCourse(Authentication auth, @RequestBody Course course) {
-        return requireAdmin(auth).then(
-            courseRepository.save(course).map(ApiResponse::ok)
-        );
+        return requireAdmin(auth).then(Mono.defer(() -> {
+            validateCourse(course);
+            course.setId(null); // yaratishda id clientdan qabul qilinmaydi
+            course.setName(course.getName().trim());
+            return courseRepository.save(course).map(ApiResponse::ok);
+        }));
     }
 
     @PutMapping("/courses/{id}")
     public Mono<ApiResponse<Course>> updateCourse(Authentication auth, @PathVariable Long id, @RequestBody Course body) {
         return requireAdmin(auth).then(
             courseRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Kurs topilmadi")))
                 .flatMap(c -> {
-                    c.setName(body.getName());
+                    validateCourse(body);
+                    c.setName(body.getName().trim());
                     c.setLanguageId(body.getLanguageId());
                     c.setFlagEmoji(body.getFlagEmoji());
                     c.setGoal(body.getGoal());
@@ -578,7 +743,52 @@ public class AdminController {
     @DeleteMapping("/courses/{id}")
     public Mono<ApiResponse<Void>> deleteCourse(Authentication auth, @PathVariable Long id) {
         return requireAdmin(auth).then(
-            courseRepository.deleteById(id).then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+            courseRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Kurs topilmadi")))
+                // Darslar va audio kitoblar DB'da cascade bilan o'chadi — fayllarini oldindan yig'ib olamiz
+                .flatMap(course -> lessonRepository.findByCourseIdOrderByOrderIndex(id)
+                    .concatMap(this::lessonFiles)
+                    .collectList()
+                    .flatMap(lessonFileLists -> {
+                        List<String> files = new ArrayList<>();
+                        lessonFileLists.forEach(files::addAll);
+                        files.addAll(pathsOf(course.getCoverImage(), course.getBackgroundImage()));
+                        return courseRepository.deleteById(id)
+                                .then(deleteUnreferencedLessonFiles(files));
+                    }))
+                .then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+        );
+    }
+
+    /** Kurs card (cover) rasmini olib tashlash. */
+    @DeleteMapping("/courses/{id}/cover")
+    public Mono<ApiResponse<Course>> deleteCourseCover(Authentication auth, @PathVariable Long id) {
+        return requireAdmin(auth).then(
+            courseRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Kurs topilmadi")))
+                .flatMap(course -> {
+                    String old = course.getCoverImage();
+                    course.setCoverImage(null);
+                    return courseRepository.save(course)
+                            .flatMap(saved -> fileStorageService.deleteStoredFiles(pathsOf(old)).thenReturn(saved));
+                })
+                .map(ApiResponse::ok)
+        );
+    }
+
+    /** Kurs background rasmini olib tashlash. */
+    @DeleteMapping("/courses/{id}/background")
+    public Mono<ApiResponse<Course>> deleteCourseBackground(Authentication auth, @PathVariable Long id) {
+        return requireAdmin(auth).then(
+            courseRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Kurs topilmadi")))
+                .flatMap(course -> {
+                    String old = course.getBackgroundImage();
+                    course.setBackgroundImage(null);
+                    return courseRepository.save(course)
+                            .flatMap(saved -> fileStorageService.deleteStoredFiles(pathsOf(old)).thenReturn(saved));
+                })
+                .map(ApiResponse::ok)
         );
     }
 
@@ -588,7 +798,7 @@ public class AdminController {
                                                        @RequestPart("file") FilePart file) {
         return requireAdmin(auth).then(
             courseRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Kurs topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Kurs topilmadi")))
                 .flatMap(course -> fileStorageService.saveCourseCover(id, file, course.getCoverImage())
                     .flatMap(path -> {
                         course.setCoverImage(path);
@@ -604,7 +814,7 @@ public class AdminController {
                                                             @RequestPart("file") FilePart file) {
         return requireAdmin(auth).then(
             courseRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Kurs topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Kurs topilmadi")))
                 .flatMap(course -> fileStorageService.saveCourseBackground(id, file, course.getBackgroundImage())
                     .flatMap(path -> {
                         course.setBackgroundImage(path);
@@ -620,7 +830,7 @@ public class AdminController {
                                                                 @RequestPart("file") FilePart file) {
         return requireAdmin(auth).then(
             languageRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Til topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Til topilmadi")))
                 .flatMap(lang -> fileStorageService.saveLanguageImage(
                                 lang.getName(), lang.getId(),
                                 uz.sevenEdu.teacherBot.common.enums.LanguageFileType.BACKGROUND,
@@ -648,7 +858,15 @@ public class AdminController {
     @PostMapping("/courses/{courseId}/teachers/{teacherId}")
     public Mono<ApiResponse<CourseTeacher>> addTeacherToCourse(Authentication auth, @PathVariable Long courseId, @PathVariable Long teacherId) {
         return requireAdmin(auth).then(
-            courseTeacherRepository.save(CourseTeacher.builder().courseId(courseId).teacherId(teacherId).build())
+            userRepository.findById(teacherId)
+                .filter(u -> u.getRole() == UserRole.TEACHER)
+                .switchIfEmpty(Mono.error(new NotFoundException("O'qituvchi topilmadi")))
+                .then(courseRepository.existsById(courseId))
+                .flatMap(exists -> exists
+                        ? courseTeacherRepository.findByCourseIdAndTeacherId(courseId, teacherId)
+                            .switchIfEmpty(Mono.defer(() -> courseTeacherRepository.save(
+                                    CourseTeacher.builder().courseId(courseId).teacherId(teacherId).build())))
+                        : Mono.error(new NotFoundException("Kurs topilmadi")))
                 .map(ApiResponse::ok)
         );
     }
@@ -674,6 +892,10 @@ public class AdminController {
     @PostMapping("/lessons")
     public Mono<ApiResponse<Lesson>> createLesson(Authentication auth, @RequestBody Lesson lesson) {
         return requireAdmin(auth).then(Mono.defer(() -> {
+            if (lesson.getCourseId() == null) return Mono.error(new BadRequestException("Kurs tanlanmagan"));
+            if (lesson.getName() == null || lesson.getName().isBlank()) {
+                return Mono.error(new BadRequestException("Dars nomi majburiy"));
+            }
             Lesson l = Lesson.builder()
                     .courseId(lesson.getCourseId())
                     .name(lesson.getName())
@@ -684,7 +906,10 @@ public class AdminController {
                     .videoUrl(lesson.getVideoUrl())
                     .youtubeId(lesson.getYoutubeId())
                     .build();
-            return lessonRepository.save(l)
+            return courseRepository.existsById(lesson.getCourseId())
+                    .flatMap(exists -> exists
+                            ? lessonRepository.save(l)
+                            : Mono.<Lesson>error(new NotFoundException("Kurs topilmadi")))
                     .flatMap(saved ->
                         testRepository.save(TestEntity.builder().lessonId(saved.getId()).name(saved.getName() + " Test").build())
                             .thenReturn(saved)
@@ -697,7 +922,11 @@ public class AdminController {
     public Mono<ApiResponse<Lesson>> updateLesson(Authentication auth, @PathVariable Long id, @RequestBody Lesson body) {
         return requireAdmin(auth).then(
             lessonRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Dars topilmadi")))
                 .flatMap(l -> {
+                    if (body.getName() != null && body.getName().isBlank()) {
+                        return Mono.error(new BadRequestException("Dars nomi majburiy"));
+                    }
                     // Faqat berilgan maydonlar yangilanadi — video/rasm yuborilmasa,
                     // eskisi o'zgarishsiz qoladi (cover/video alohida upload endpointlar orqali boshqariladi).
                     if (body.getName() != null) l.setName(body.getName());
@@ -729,7 +958,7 @@ public class AdminController {
                                                        @RequestPart("file") FilePart file) {
         return requireAdmin(auth).then(
             lessonRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Dars topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Dars topilmadi")))
                 .flatMap(lesson -> fileStorageService.saveLessonVideo(id, file, lesson.getVideoUrl())
                     .flatMap(path -> {
                         lesson.setVideoUrl(path);
@@ -748,7 +977,7 @@ public class AdminController {
                                                        @RequestPart("file") FilePart file) {
         return requireAdmin(auth).then(
             lessonRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Dars topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Dars topilmadi")))
                 .flatMap(lesson -> fileStorageService.saveLessonCover(id, file, lesson.getCoverImage())
                     .flatMap(path -> {
                         lesson.setCoverImage(path);
@@ -761,7 +990,28 @@ public class AdminController {
     @DeleteMapping("/lessons/{id}")
     public Mono<ApiResponse<Void>> deleteLesson(Authentication auth, @PathVariable Long id) {
         return requireAdmin(auth).then(
-            lessonRepository.deleteById(id).then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+            lessonRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Dars topilmadi")))
+                .flatMap(lesson -> lessonFiles(lesson)
+                    .flatMap(files -> lessonRepository.deleteById(id)
+                            .then(deleteUnreferencedLessonFiles(files))))
+                .then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+        );
+    }
+
+    /** Dars muqova rasmini olib tashlash. */
+    @DeleteMapping("/lessons/{id}/cover")
+    public Mono<ApiResponse<Lesson>> deleteLessonCover(Authentication auth, @PathVariable Long id) {
+        return requireAdmin(auth).then(
+            lessonRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Dars topilmadi")))
+                .flatMap(lesson -> {
+                    String old = lesson.getCoverImage();
+                    lesson.setCoverImage(null);
+                    return lessonRepository.save(lesson)
+                            .flatMap(saved -> fileStorageService.deleteStoredFiles(pathsOf(old)).thenReturn(saved));
+                })
+                .map(ApiResponse::ok)
         );
     }
 
@@ -786,7 +1036,7 @@ public class AdminController {
     public Mono<ApiResponse<Vocabulary>> updateVocab(Authentication auth, @PathVariable Long id, @RequestBody Vocabulary body) {
         return requireAdmin(auth).then(
             vocabularyRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Lug'at topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Lug'at topilmadi")))
                 .flatMap(v -> {
                     if (body.getTranslationUz() != null) v.setTranslationUz(body.getTranslationUz());
                     if (body.getTranslationTarget() != null) v.setTranslationTarget(body.getTranslationTarget());
@@ -816,6 +1066,7 @@ public class AdminController {
     public Mono<ApiResponse<Question>> createQuestion(Authentication auth, @PathVariable Long lessonId, @RequestBody Question q) {
         return requireAdmin(auth).then(
             testRepository.findByLessonId(lessonId)
+                .switchIfEmpty(Mono.error(new NotFoundException("Dars testi topilmadi")))
                 .flatMap(test -> {
                     q.setTestId(test.getId());
                     return questionRepository.save(q);
@@ -828,7 +1079,7 @@ public class AdminController {
     public Mono<ApiResponse<Question>> updateQuestion(Authentication auth, @PathVariable Long id, @RequestBody Question body) {
         return requireAdmin(auth).then(
             questionRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Savol topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Savol topilmadi")))
                 .flatMap(q -> {
                     if (body.getQuestionText() != null) q.setQuestionText(body.getQuestionText());
                     if (body.getOptionA() != null) q.setOptionA(body.getOptionA());
@@ -907,12 +1158,15 @@ public class AdminController {
             @RequestParam(required = false) String description) {
         return requireAdmin(auth).then(
             lessonRepository.findById(lessonId)
-                .switchIfEmpty(Mono.error(new RuntimeException("Dars topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Dars topilmadi")))
                 .then(audiobookRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList())
                 .flatMap(existing -> fileStorageService.saveLessonAudiobook(lessonId, file)
                     .flatMap(audioPath -> {
                         Mono<String> pdfMono = pdf != null
                                 ? fileStorageService.saveLessonAudiobookPdf(lessonId, pdf)
+                                    // PDF rad etilsa, endigina saqlangan audio diskda yetim qolmasin
+                                    .onErrorResume(e -> fileStorageService.deleteStoredFiles(pathsOf(audioPath))
+                                            .then(Mono.error(e)))
                                 : Mono.just("");
                         return pdfMono.flatMap(pdfPath -> audiobookRepository.save(
                                 uz.sevenEdu.teacherBot.lesson.entity.Audiobook.builder()
@@ -932,7 +1186,10 @@ public class AdminController {
     @DeleteMapping("/audiobooks/{id}")
     public Mono<ApiResponse<Void>> deleteAudiobook(Authentication auth, @PathVariable Long id) {
         return requireAdmin(auth).then(
-            audiobookRepository.deleteById(id).then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+            audiobookRepository.findById(id)
+                .flatMap(a -> audiobookRepository.deleteById(id)
+                        .then(fileStorageService.deleteStoredFiles(pathsOf(a.getFilePath(), a.getPdfPath()))))
+                .then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
         );
     }
 
@@ -947,16 +1204,29 @@ public class AdminController {
 
     @PostMapping("/books")
     public Mono<ApiResponse<Books>> createBook(Authentication auth, @RequestBody Books book) {
-        return requireAdmin(auth).then(
-            booksRepository.save(book).map(ApiResponse::ok)
-        );
+        return requireAdmin(auth).then(Mono.defer(() -> {
+            if (book.getTitle() == null || book.getTitle().isBlank()) {
+                return Mono.error(new BadRequestException("Kitob nomi majburiy"));
+            }
+            book.setId(null); // yaratishda id clientdan qabul qilinmaydi
+            // Fayl/muqova/galereya faqat upload endpointlari orqali o'rnatiladi
+            book.setFilePath(null);
+            book.setCoverImage(null);
+            book.setImages(null);
+            if (book.getCreatedAt() == null) book.setCreatedAt(LocalDateTime.now());
+            return booksRepository.save(book).map(ApiResponse::ok);
+        }));
     }
 
     @PutMapping("/books/{id}")
     public Mono<ApiResponse<Books>> updateBook(Authentication auth, @PathVariable Long id, @RequestBody Books body) {
         return requireAdmin(auth).then(
             booksRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Kitob topilmadi")))
                 .flatMap(b -> {
+                    if (body.getTitle() == null || body.getTitle().isBlank()) {
+                        return Mono.error(new BadRequestException("Kitob nomi majburiy"));
+                    }
                     b.setTitle(body.getTitle());
                     b.setAuthor(body.getAuthor());
                     b.setCategory(body.getCategory());
@@ -974,9 +1244,11 @@ public class AdminController {
                     // format/daraja olib tashlandi; reyting qo'lda emas (baholar asosida)
                     b.setLanguage(body.getLanguage());
                     b.setPreviewPages(body.getPreviewPages());
-                    b.setImageId(body.getImageId());
-                    b.setFileId(body.getFileId());
-                    b.setFilePath(body.getFilePath());
+                    // Fayl maydonlari forma orqali O'CHIRILMAYDI: filePath/coverImage/images faqat
+                    // upload va "olib tashlash" endpointlari orqali o'zgaradi (aks holda har
+                    // "Saqlash" yuklangan PDF yo'lini null qilib yuborardi).
+                    if (body.getImageId() != null) b.setImageId(body.getImageId());
+                    if (body.getFileId() != null) b.setFileId(body.getFileId());
                     b.setUpdatedAt(LocalDateTime.now());
                     return booksRepository.save(b);
                 })
@@ -987,7 +1259,49 @@ public class AdminController {
     @DeleteMapping("/books/{id}")
     public Mono<ApiResponse<Void>> deleteBook(Authentication auth, @PathVariable Long id) {
         return requireAdmin(auth).then(
-            booksRepository.deleteById(id).then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+            booksRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Kitob topilmadi")))
+                .flatMap(book -> {
+                    List<String> files = pathsOf(book.getFilePath(), book.getCoverImage());
+                    files.addAll(booksService.galleryPaths(book));
+                    return booksRepository.deleteById(id)
+                            .then(fileStorageService.deleteStoredFiles(files));
+                })
+                .then(Mono.just(ApiResponse.ok("O'chirildi", (Void) null)))
+        );
+    }
+
+    /** Kitob faylini (PDF/EPUB) olib tashlash. */
+    @DeleteMapping("/books/{id}/file")
+    public Mono<ApiResponse<Books>> deleteBookFile(Authentication auth, @PathVariable Long id) {
+        return requireAdmin(auth).then(
+            booksRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Kitob topilmadi")))
+                .flatMap(book -> {
+                    String old = book.getFilePath();
+                    book.setFilePath(null);
+                    book.setUpdatedAt(LocalDateTime.now());
+                    return booksRepository.save(book)
+                            .flatMap(saved -> fileStorageService.deleteStoredFiles(pathsOf(old)).thenReturn(saved));
+                })
+                .map(ApiResponse::ok)
+        );
+    }
+
+    /** Kitob muqova rasmini olib tashlash. */
+    @DeleteMapping("/books/{id}/cover")
+    public Mono<ApiResponse<Books>> deleteBookCover(Authentication auth, @PathVariable Long id) {
+        return requireAdmin(auth).then(
+            booksRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Kitob topilmadi")))
+                .flatMap(book -> {
+                    String old = book.getCoverImage();
+                    book.setCoverImage(null);
+                    book.setUpdatedAt(LocalDateTime.now());
+                    return booksRepository.save(book)
+                            .flatMap(saved -> fileStorageService.deleteStoredFiles(pathsOf(old)).thenReturn(saved));
+                })
+                .map(ApiResponse::ok)
         );
     }
 
@@ -999,7 +1313,7 @@ public class AdminController {
                                                     @RequestPart("file") FilePart file) {
         return requireAdmin(auth).then(
             booksRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Kitob topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Kitob topilmadi")))
                 .flatMap(book -> fileStorageService.saveBookFile(id, file, book.getFilePath())
                     .flatMap(path -> {
                         book.setFilePath(path);
@@ -1019,7 +1333,7 @@ public class AdminController {
                                                      @RequestPart("file") FilePart file) {
         return requireAdmin(auth).then(
             booksRepository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Kitob topilmadi")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Kitob topilmadi")))
                 .flatMap(book -> fileStorageService.saveBookCover(id, file, book.getCoverImage())
                     .flatMap(path -> {
                         book.setCoverImage(path); // yo'lni saqlaymiz (avval saqlanmas edi — bug)
@@ -1074,6 +1388,7 @@ public class AdminController {
     public Mono<ApiResponse<News>> updateNews(Authentication auth, @PathVariable Long id, @RequestBody News body) {
         return requireAdmin(auth).then(
             newsRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Yangilik topilmadi")))
                 .flatMap(n -> {
                     n.setName(body.getName());
                     n.setImageId(body.getImageId());
@@ -1138,6 +1453,129 @@ public class AdminController {
 
     // ── Helper ──────────────────────────────────────────────────
 
+    private static final int MIN_PASSWORD_LENGTH = 6;
+    private static final int MAX_NOTIFICATION_TITLE = 150;
+    private static final int MAX_NOTIFICATION_BODY = 1000;
+    private static final java.util.regex.Pattern EMAIL_PATTERN =
+            java.util.regex.Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+
+    private static String trimToNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static Long toLongOrNull(Object value) {
+        if (value == null) return null;
+        try {
+            return Long.valueOf(value.toString().trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** Null/bo'sh bo'lmagan yo'llardan o'zgaruvchan ro'yxat. */
+    private static List<String> pathsOf(String... paths) {
+        List<String> result = new ArrayList<>();
+        for (String path : paths) {
+            if (path != null && !path.isBlank()) result.add(path);
+        }
+        return result;
+    }
+
+    private static boolean isAdminRole(UserRole role) {
+        return role == UserRole.ADMIN || role == UserRole.HEAD_ADMIN;
+    }
+
+    /** Mobil "Mehmon sifatida kirish" bog'langan tizim akkaunti (seed id 999). */
+    private static boolean isSystemGuest(BaseUser user) {
+        return Boolean.TRUE.equals(user.getIsGuest())
+                || uz.sevenEdu.teacherBot.common.util.GuestUtil.GUEST_USER_ID.equals(user.getId());
+    }
+
+    private static UserRole parseRole(String raw, UserRole fallback) {
+        if (raw == null || raw.isBlank()) {
+            if (fallback != null) return fallback;
+            throw new BadRequestException("Rol majburiy");
+        }
+        try {
+            return UserRole.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Rol noto'g'ri: " + raw);
+        }
+    }
+
+    private static String normalizeEmail(String raw) {
+        String email = trimToNull(raw);
+        if (email == null) return null;
+        if (email.length() > 255 || !EMAIL_PATTERN.matcher(email).matches()) {
+            throw new BadRequestException("Email noto'g'ri formatda");
+        }
+        return email;
+    }
+
+    /** Email/telefon boshqa foydalanuvchida band bo'lsa — 400 (aks holda UNIQUE cheklovi 500 qaytarardi). */
+    private Mono<Void> ensureContactsFree(String email, String phone, Long selfId) {
+        Mono<Void> emailCheck = email == null ? Mono.empty()
+                : userRepository.findByEmailIgnoreCase(email)
+                    .filter(u -> !u.getId().equals(selfId))
+                    .flatMap(u -> Mono.<Void>error(new BadRequestException("Bu email allaqachon ro'yxatdan o'tgan")));
+        Mono<Void> phoneCheck = phone == null ? Mono.empty()
+                : userRepository.findByPhoneDigits(PhoneNumberUtil.digits(phone))
+                    .filter(u -> !u.getId().equals(selfId))
+                    .flatMap(u -> Mono.<Void>error(new BadRequestException("Bu telefon raqam allaqachon ro'yxatdan o'tgan")));
+        return emailCheck.then(phoneCheck);
+    }
+
+    private static String breakGroupName(Object raw) {
+        String name = raw != null ? raw.toString().trim() : "";
+        if (name.isEmpty()) throw new BadRequestException("Guruh nomi majburiy");
+        if (name.length() > 60) throw new BadRequestException("Guruh nomi 60 belgidan oshmasligi kerak");
+        return name;
+    }
+
+    private static String breakGroupIcon(Object raw) {
+        String icon = raw != null ? raw.toString().trim() : "";
+        if (icon.isEmpty()) return null;
+        if (icon.length() > 8) throw new BadRequestException("Ikonka 8 belgidan oshmasligi kerak");
+        return icon;
+    }
+
+    /** Kurs yaratish/tahrirlash tekshiruvi: nom majburiy; premium kurs narxsiz bo'lmaydi. */
+    private static void validateCourse(Course course) {
+        if (course.getName() == null || course.getName().isBlank()) {
+            throw new BadRequestException("Kurs nomi majburiy");
+        }
+        if (course.getPrice() != null && course.getPrice() < 0) {
+            throw new BadRequestException("Narx manfiy bo'lishi mumkin emas");
+        }
+        if (Boolean.TRUE.equals(course.getIsPremium()) && (course.getPrice() == null || course.getPrice() <= 0)) {
+            throw new BadRequestException("Premium kurs uchun narx majburiy");
+        }
+    }
+
+    /** Darsga tegishli barcha fayllar: video (tashqi URL bo'lmasa), muqova, audio kitoblar va ularning PDF'lari. */
+    /**
+     * Darslar o'chirilgandan KEYIN chaqiriladi: boshqa dars hali ishlatayotgan faylga tegmaydi
+     * (bazada nusxalangan darslar bitta video faylni bo'lishishi mumkin).
+     */
+    private Mono<Void> deleteUnreferencedLessonFiles(List<String> files) {
+        return reactor.core.publisher.Flux.fromIterable(files)
+                .filterWhen(path -> lessonRepository.countFileReferences(path).map(count -> count == 0))
+                .collectList()
+                .flatMap(fileStorageService::deleteStoredFiles)
+                .onErrorResume(e -> Mono.empty());
+    }
+
+    private Mono<List<String>> lessonFiles(Lesson lesson) {
+        return audiobookRepository.findByLessonIdOrderByOrderIndex(lesson.getId()).collectList()
+                .map(audiobooks -> {
+                    List<String> files = pathsOf(lesson.getVideoUrl(), lesson.getCoverImage());
+                    audiobooks.forEach(a -> files.addAll(pathsOf(a.getFilePath(), a.getPdfPath())));
+                    return files;
+                });
+    }
+
     private Mono<Void> requireAdmin(Authentication auth) {
         if (auth == null) return Mono.error(new uz.sevenEdu.teacherBot.common.exception.UnauthorizedException("Avtorizatsiya talab qilinadi"));
         Long userId = (Long) auth.getPrincipal();
@@ -1145,7 +1583,7 @@ public class AdminController {
                 .switchIfEmpty(Mono.error(new uz.sevenEdu.teacherBot.common.exception.UnauthorizedException("Avtorizatsiya talab qilinadi")))
                 .flatMap(user -> {
                     if (user.getRole() != UserRole.ADMIN) {
-                        return Mono.error(new uz.sevenEdu.teacherBot.common.exception.ForbiddenException("Faqat admin uchun"));
+                        return Mono.error(new ForbiddenException("Faqat admin uchun"));
                     }
                     return Mono.empty();
                 });
@@ -1159,7 +1597,7 @@ public class AdminController {
                 .switchIfEmpty(Mono.error(new uz.sevenEdu.teacherBot.common.exception.UnauthorizedException("Avtorizatsiya talab qilinadi")))
                 .flatMap(user -> {
                     if (user.getRole() != UserRole.ADMIN) {
-                        return Mono.error(new uz.sevenEdu.teacherBot.common.exception.ForbiddenException("Faqat admin uchun"));
+                        return Mono.error(new ForbiddenException("Faqat admin uchun"));
                     }
                     return Mono.just(user);
                 });

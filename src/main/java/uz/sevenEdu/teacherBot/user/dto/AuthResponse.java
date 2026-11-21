@@ -15,4 +15,6 @@ public class AuthResponse {
     private UserRole role;
     private String token;
     private Boolean isGuest;
+    /** Bosh admin (admin panelda boshqa adminlarni boshqarish huquqi). */
+    private Boolean isDefault;
 }

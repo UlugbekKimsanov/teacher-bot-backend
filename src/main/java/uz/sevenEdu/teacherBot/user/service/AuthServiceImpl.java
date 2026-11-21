@@ -173,6 +173,7 @@ public class AuthServiceImpl implements AuthService {
                 .role(user.getRole())
                 .token(token)
                 .isGuest(Boolean.TRUE.equals(user.getIsGuest()))
+                .isDefault(Boolean.TRUE.equals(user.getIsDefault()))
                 .build();
     }
 

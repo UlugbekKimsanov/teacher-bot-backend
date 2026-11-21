@@ -40,21 +40,41 @@ public class LandingContentNormalizer {
     }
 
     public LandingContentDto normalize(String storedJson) {
-        if (storedJson == null || storedJson.isBlank()) return defaultContent();
-        try {
-            return normalize(objectMapper.readTree(storedJson));
-        } catch (Exception ex) {
-            log.error("Landing kontenti JSON sifatida o'qilmadi; V2 default ishlatiladi", ex);
-            return defaultContent();
-        }
+        LandingContentDto content = tryNormalize(storedJson);
+        return content != null ? content : defaultContent();
     }
 
     public LandingContentDto normalize(JsonNode source) {
-        if (source == null || !source.isObject()) return defaultContent();
+        LandingContentDto content = tryNormalize(source);
+        return content != null ? content : defaultContent();
+    }
+
+    /**
+     * Saqlangan kontent o'qiladimi. false bo'lsa {@link #normalize(String)} uning o'rniga default
+     * qaytaradi — ya'ni keyingi saqlash haqiqiy kontentni bosib ketadi (chaqiruvchi zaxira olishi kerak).
+     * Bo'sh qiymat — yo'qotadigan narsa yo'q, shuning uchun true.
+     */
+    public boolean isReadable(String storedJson) {
+        return storedJson == null || storedJson.isBlank() || tryNormalize(storedJson) != null;
+    }
+
+    private LandingContentDto tryNormalize(String storedJson) {
+        if (storedJson == null || storedJson.isBlank()) return null;
+        try {
+            return tryNormalize(objectMapper.readTree(storedJson));
+        } catch (Exception ex) {
+            log.error("Landing kontenti JSON sifatida o'qilmadi; V2 default ishlatiladi", ex);
+            return null;
+        }
+    }
+
+    /** Kanonik V2 kontent yoki null (o'qib bo'lmasa). */
+    private LandingContentDto tryNormalize(JsonNode source) {
+        if (source == null || !source.isObject()) return null;
         int sourceVersion = source.path("schemaVersion").asInt(0);
         if (sourceVersion > 2) {
             log.error("Qo'llab-quvvatlanmaydigan landing schemaVersion={}; V2 default ishlatiladi", sourceVersion);
-            return defaultContent();
+            return null;
         }
 
         ObjectNode legacy = ((ObjectNode) source).deepCopy();
@@ -66,7 +86,7 @@ public class LandingContentNormalizer {
         ObjectNode result = defaults.deepCopy();
         deepMerge(result, legacy);
         result.put("schemaVersion", 2);
-        return convertOrDefault(result);
+        return convertOrNull(result);
     }
 
     public LandingContentDto defaultContent() {
@@ -166,7 +186,7 @@ public class LandingContentNormalizer {
         }
     }
 
-    private LandingContentDto convertOrDefault(ObjectNode node) {
+    private LandingContentDto convertOrNull(ObjectNode node) {
         try {
             LandingContentDto content = convert(node);
             Set<ConstraintViolation<LandingContentDto>> violations = validator.validate(content);
@@ -177,7 +197,7 @@ public class LandingContentNormalizer {
         } catch (Exception ex) {
             log.error("Eski landing kontentini V2 sxemaga o'tkazib bo'lmadi; V2 default ishlatiladi", ex);
         }
-        return defaultContent();
+        return null;
     }
 
     private LandingContentDto convert(ObjectNode node) {

@@ -13,7 +13,6 @@ import reactor.core.scheduler.Schedulers;
 import org.springframework.web.util.UriUtils;
 
 import uz.sevenEdu.teacherBot.common.enums.LanguageFileType;
-import uz.sevenEdu.teacherBot.common.enums.LessonFileType;
 import uz.sevenEdu.teacherBot.common.exception.BadRequestException;
 import uz.sevenEdu.teacherBot.common.exception.PayloadTooLargeException;
 
@@ -48,6 +47,79 @@ public class FileStorageService {
         this.basePath = Paths.get(basePath).toAbsolutePath().normalize();
     }
 
+    // ── Yuklash turlari ─────────────────────────────────────
+
+    /**
+     * Yuklanadigan fayl turi: ruxsat etilgan kengaytmalar va maksimal hajm.
+     * Admin paneldagi chegaralar shu qiymatlardan oshmasligi kerak.
+     */
+    public enum UploadKind {
+        IMAGE(Set.of(".jpg", ".jpeg", ".png", ".webp", ".gif"), 10L * 1024 * 1024,
+                "Faqat JPG, PNG, WebP yoki GIF rasm qabul qilinadi",
+                "Rasm hajmi 10 MB dan oshmasligi kerak"),
+        AUDIO(Set.of(".mp3", ".m4a", ".aac", ".wav", ".ogg", ".oga", ".opus", ".flac"), 200L * 1024 * 1024,
+                "Faqat audio fayl (MP3, M4A, AAC, WAV, OGG, OPUS, FLAC) qabul qilinadi",
+                "Audio hajmi 200 MB dan oshmasligi kerak"),
+        VIDEO(Set.of(".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi"), MAX_VIDEO_BYTES,
+                "Faqat video fayl (MP4, MOV, WebM, MKV, AVI) qabul qilinadi",
+                VIDEO_TOO_LARGE_MESSAGE),
+        BOOK(Set.of(".pdf", ".epub"), 200L * 1024 * 1024,
+                "Faqat PDF yoki EPUB fayl qabul qilinadi",
+                "Kitob fayli hajmi 200 MB dan oshmasligi kerak"),
+        PDF(Set.of(".pdf"), 200L * 1024 * 1024,
+                "Faqat PDF fayl qabul qilinadi",
+                "PDF hajmi 200 MB dan oshmasligi kerak");
+
+        private final Set<String> extensions;
+        private final long maxBytes;
+        private final String typeMessage;
+        private final String sizeMessage;
+
+        UploadKind(Set<String> extensions, long maxBytes, String typeMessage, String sizeMessage) {
+            this.extensions = extensions;
+            this.maxBytes = maxBytes;
+            this.typeMessage = typeMessage;
+            this.sizeMessage = sizeMessage;
+        }
+    }
+
+    /**
+     * Barcha yuklashlar uchun yagona yo'l:
+     *  1) kengaytma va (ma'lum bo'lsa) Content-Length tekshiriladi — bitta bayt yozilmasdan;
+     *  2) fayl yangi nom bilan yoziladi, yozilgandan keyin haqiqiy hajm tekshiriladi;
+     *  3) FAQAT muvaffaqiyatdan keyin eski fayl o'chiriladi (yuklash uzilsa eskisi saqlanib qoladi).
+     * Natija — bazaga yoziladigan nisbiy yo'l.
+     */
+    private Mono<String> store(FilePart filePart, UploadKind kind, Path dir, String baseName, String oldPath) {
+        return Mono.defer(() -> {
+            if (filePart == null || filePart.filename() == null || filePart.filename().isBlank()) {
+                return Mono.error(new BadRequestException("Fayl tanlanmagan"));
+            }
+            String ext = getExtension(filePart.filename()).toLowerCase(Locale.ROOT);
+            if (!kind.extensions.contains(ext)) {
+                return Mono.error(new BadRequestException(kind.typeMessage));
+            }
+            if (filePart.headers().getContentLength() > kind.maxBytes) {
+                return Mono.error(new PayloadTooLargeException(kind.sizeMessage));
+            }
+            String uid = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+            Path dest = dir.resolve(baseName + "_" + uid + ext).normalize();
+            if (!dest.startsWith(basePath)) {
+                return Mono.error(new BadRequestException("Fayl yo'li noto'g'ri"));
+            }
+            String relative = basePath.relativize(dest).toString().replace("\\", "/");
+            return saveFile(filePart, dest)
+                    .then(enforceSize(dest, kind.maxBytes, kind.sizeMessage))
+                    .onErrorResume(e -> Mono.fromRunnable(() -> deleteQuietly(dest))
+                            .subscribeOn(Schedulers.boundedElastic())
+                            .then(Mono.error(e)))
+                    .then(Mono.fromRunnable(() -> {
+                        if (oldPath != null && !oldPath.equals(relative)) deleteIfExists(oldPath);
+                    }).subscribeOn(Schedulers.boundedElastic()))
+                    .thenReturn(relative);
+        });
+    }
+
     // ── Language ────────────────────────────────────────────
 
     /**
@@ -65,179 +137,70 @@ public class FileStorageService {
     public Mono<String> saveLanguageImage(String languageName, Long languageId,
                                           LanguageFileType fileType, FilePart filePart,
                                           String oldPath) {
-        deleteIfExists(oldPath);
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String typeName = fileType.name().toLowerCase();
-        String fileName = languageName + "_" + typeName + "_" + languageId + "_" + uid + ext;
-        Path dest = languagePath(languageName, languageId).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
-    }
-
-    // ── Course ─────────────────────────────────────────────
-
-    /**
-     * Course yaratilganda: {lang}/courses/{courseName}_{courseId}/lessons/
-     */
-    public void createCourseFolder(String languageName, Long languageId,
-                                   String courseName, Long courseId) {
-        Path courseDir = coursePath(languageName, languageId, courseName, courseId);
-        createDirectories(courseDir.resolve("lessons"));
-    }
-
-    /**
-     * Course uchun cover rasm saqlash
-     */
-    public Mono<String> saveCourseImage(String languageName, Long languageId,
-                                        String courseName, Long courseId,
-                                        FilePart filePart, String oldPath) {
-        deleteIfExists(oldPath);
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String fileName = courseName + "_cover_" + courseId + "_" + uid + ext;
-        Path dest = coursePath(languageName, languageId, courseName, courseId).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
-    }
-
-    // ── Lesson ─────────────────────────────────────────────
-
-    /**
-     * Lesson yaratilganda: {course}/lessons/{lessonName}_{lessonId}/
-     */
-    public void createLessonFolder(String languageName, Long languageId,
-                                   String courseName, Long courseId,
-                                   String lessonName, Long lessonId) {
-        Path lessonDir = lessonPath(languageName, languageId, courseName, courseId, lessonName, lessonId);
-        createDirectories(lessonDir);
-    }
-
-    /**
-     * Lesson uchun cover yoki video saqlash
-     * fileType: "cover" yoki "video"
-     */
-    public Mono<String> saveLessonFile(String languageName, Long languageId,
-                                       String courseName, Long courseId,
-                                       String lessonName, Long lessonId,
-                                       LessonFileType fileType, FilePart filePart,
-                                       String oldPath) {
-        deleteIfExists(oldPath);
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String typeName = fileType.name().toLowerCase();
-        String fileName = lessonName + "_" + typeName + "_" + lessonId + "_" + uid + ext;
-        Path dest = lessonPath(languageName, languageId, courseName, courseId, lessonName, lessonId)
-                .resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        String typeName = fileType.name().toLowerCase(Locale.ROOT);
+        return store(filePart, UploadKind.IMAGE, languagePath(languageName, languageId),
+                languageName + "_" + typeName + "_" + languageId, oldPath);
     }
 
     // ── Book ──────────────────────────────────────────────
 
-    /**
-     * Kitob fayli saqlash (PDF, EPUB va boshqalar)
-     * Path: books/{bookId}/{fileName}
-     */
+    /** Kitob fayli (PDF/EPUB). Path: books/{bookId}/book_{bookId}_{uid}.{ext} */
     public Mono<String> saveBookFile(Long bookId, FilePart filePart, String oldPath) {
-        deleteIfExists(oldPath);
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String fileName = "book_" + bookId + "_" + uid + ext;
-        Path dest = basePath.resolve("books").resolve(String.valueOf(bookId)).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return store(filePart, UploadKind.BOOK, entityDir("books", bookId), "book_" + bookId, oldPath);
     }
 
-    /**
-     * Kitob muqova rasmi saqlash
-     * Path: books/{bookId}/cover_{bookId}_{uid}.{ext}
-     */
+    /** Kitob muqova rasmi. Path: books/{bookId}/cover_{bookId}_{uid}.{ext} */
     public Mono<String> saveBookCover(Long bookId, FilePart filePart, String oldPath) {
-        deleteIfExists(oldPath);
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String fileName = "cover_" + bookId + "_" + uid + ext;
-        Path dest = basePath.resolve("books").resolve(String.valueOf(bookId)).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return store(filePart, UploadKind.IMAGE, entityDir("books", bookId), "cover_" + bookId, oldPath);
     }
 
-    /**
-     * Kitob galereya rasmi saqlash (eski fayl o'chirilmaydi — bir nechta rasm saqlanadi)
-     * Path: books/{bookId}/img_{bookId}_{uid}.{ext}
-     */
+    /** Kitob galereya rasmi (eski fayl o'chirilmaydi — bir nechta rasm saqlanadi). */
     public Mono<String> saveBookImage(Long bookId, FilePart filePart) {
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String fileName = "img_" + bookId + "_" + uid + ext;
-        Path dest = basePath.resolve("books").resolve(String.valueOf(bookId)).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return store(filePart, UploadKind.IMAGE, entityDir("books", bookId), "img_" + bookId, null);
     }
 
-    /** Saqlangan faylni nisbiy yo'l bo'yicha o'chirish (galereyadan rasm olib tashlashda). */
+    /** Saqlangan faylni nisbiy yo'l bo'yicha o'chirish. Storage'dan tashqaridagi yo'llar e'tiborsiz qoldiriladi. */
     public void deleteStoredFile(String relativePath) {
         deleteIfExists(relativePath);
     }
 
-    /**
-     * Kurs card (cover) rasmi saqlash
-     * Path: courses/{courseId}/cover_{courseId}_{uid}.{ext}
-     */
+    /** {@link #deleteStoredFile} ning event-loop'ni bloklamaydigan varianti (bir nechta yo'l). Xato yutiladi. */
+    public Mono<Void> deleteStoredFiles(java.util.Collection<String> relativePaths) {
+        if (relativePaths == null || relativePaths.isEmpty()) return Mono.empty();
+        return Mono.<Void>fromRunnable(() -> relativePaths.forEach(this::deleteIfExists))
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(e -> Mono.empty());
+    }
+
+    // ── Course ─────────────────────────────────────────────
+
+    /** Kurs card (cover) rasmi. Path: courses/{courseId}/cover_{courseId}_{uid}.{ext} */
     public Mono<String> saveCourseCover(Long courseId, FilePart filePart, String oldPath) {
-        deleteIfExists(oldPath);
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String fileName = "cover_" + courseId + "_" + uid + ext;
-        Path dest = basePath.resolve("courses").resolve(String.valueOf(courseId)).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return store(filePart, UploadKind.IMAGE, entityDir("courses", courseId), "cover_" + courseId, oldPath);
     }
 
-    /**
-     * Kurs background rasmi saqlash
-     * Path: courses/{courseId}/bg_{courseId}_{uid}.{ext}
-     */
+    /** Kurs background rasmi. Path: courses/{courseId}/bg_{courseId}_{uid}.{ext} */
     public Mono<String> saveCourseBackground(Long courseId, FilePart filePart, String oldPath) {
-        deleteIfExists(oldPath);
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String fileName = "bg_" + courseId + "_" + uid + ext;
-        Path dest = basePath.resolve("courses").resolve(String.valueOf(courseId)).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return store(filePart, UploadKind.IMAGE, entityDir("courses", courseId), "bg_" + courseId, oldPath);
     }
 
-    /** Tanaffus guruhi fon rasmini saqlash. Path: break/{groupId}/bg_{uid}.{ext} */
+    // ── Tanaffus musiqasi ──────────────────────────────────
+
+    /** Tanaffus guruhi fon rasmi. Path: break/{groupId}/bg_{groupId}_{uid}.{ext} */
     public Mono<String> saveBreakBackground(Long groupId, FilePart filePart, String oldPath) {
-        deleteIfExists(oldPath);
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String fileName = "bg_" + groupId + "_" + uid + ext;
-        Path dest = basePath.resolve("break").resolve(String.valueOf(groupId)).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return store(filePart, UploadKind.IMAGE, entityDir("break", groupId), "bg_" + groupId, oldPath);
     }
 
-    /** Tanaffus musiqasini saqlash. Path: break/{groupId}/track_{uid}.{ext} */
+    /** Tanaffus musiqasi. Path: break/{groupId}/track_{groupId}_{uid}.{ext} */
     public Mono<String> saveBreakTrack(Long groupId, FilePart filePart) {
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String fileName = "track_" + groupId + "_" + uid + ext;
-        Path dest = basePath.resolve("break").resolve(String.valueOf(groupId)).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return store(filePart, UploadKind.AUDIO, entityDir("break", groupId), "track_" + groupId, null);
     }
 
-    /**
-     * Dars videosini saqlash
-     * Path: lessons/{lessonId}/video_{lessonId}_{uid}.{ext}
-     */
+    // ── Lesson ─────────────────────────────────────────────
+
+    /** Dars videosi (maks. 2 GB). Path: lessons/{lessonId}/video_{lessonId}_{uid}.{ext} */
     public Mono<String> saveLessonVideo(Long lessonId, FilePart filePart, String oldPath) {
-        // Content-Length ma'lum bo'lsa — bitta baytni ham yozmasdan rad etamiz.
-        long declared = filePart.headers().getContentLength();
-        if (declared > MAX_VIDEO_BYTES) {
-            return Mono.error(new PayloadTooLargeException(VIDEO_TOO_LARGE_MESSAGE));
-        }
-        deleteIfExists(oldPath);
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String fileName = "video_" + lessonId + "_" + uid + ext;
-        Path dest = basePath.resolve("lessons").resolve(String.valueOf(lessonId)).resolve(fileName);
-        return saveFile(filePart, dest)
-                .then(enforceMaxSize(dest, MAX_VIDEO_BYTES, VIDEO_TOO_LARGE_MESSAGE))
-                .thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return store(filePart, UploadKind.VIDEO, entityDir("lessons", lessonId), "video_" + lessonId, oldPath);
     }
 
     /** Absolute path — ffprobe kabi tashqi vositalar uchun. DB'dagi relative path'dan yasaydi. */
@@ -248,41 +211,24 @@ public class FileStorageService {
         return resolved.startsWith(basePath) ? resolved : null;
     }
 
-    /** Dars audio kitobini saqlash. Path: lessons/{lessonId}/audio_{uid}.{ext} */
+    /** Dars audio kitobi. Path: lessons/{lessonId}/audio_{lessonId}_{uid}.{ext} */
     public Mono<String> saveLessonAudiobook(Long lessonId, FilePart filePart) {
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String fileName = "audio_" + lessonId + "_" + uid + ext;
-        Path dest = basePath.resolve("lessons").resolve(String.valueOf(lessonId)).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return store(filePart, UploadKind.AUDIO, entityDir("lessons", lessonId), "audio_" + lessonId, null);
     }
 
-    /** Audio kitob PDF faylini saqlash. Path: lessons/{lessonId}/audiopdf_{uid}.{ext} */
+    /** Audio kitob PDF fayli. Path: lessons/{lessonId}/audiopdf_{lessonId}_{uid}.pdf */
     public Mono<String> saveLessonAudiobookPdf(Long lessonId, FilePart filePart) {
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String fileName = "audiopdf_" + lessonId + "_" + uid + ext;
-        Path dest = basePath.resolve("lessons").resolve(String.valueOf(lessonId)).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return store(filePart, UploadKind.PDF, entityDir("lessons", lessonId), "audiopdf_" + lessonId, null);
     }
 
-    /** Dars muqova (oboloshka) rasmini saqlash. Path: lessons/{lessonId}/cover_{uid}.{ext} */
+    /** Dars muqova (oboloshka) rasmi. Path: lessons/{lessonId}/cover_{lessonId}_{uid}.{ext} */
     public Mono<String> saveLessonCover(Long lessonId, FilePart filePart, String oldPath) {
-        deleteIfExists(oldPath);
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 8);
-        String fileName = "cover_" + lessonId + "_" + uid + ext;
-        Path dest = basePath.resolve("lessons").resolve(String.valueOf(lessonId)).resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return store(filePart, UploadKind.IMAGE, entityDir("lessons", lessonId), "cover_" + lessonId, oldPath);
     }
 
-    /** Admin bildirishnoma rasmini saqlash. Path: notifications/{uid}.{ext} */
+    /** Admin bildirishnoma rasmi. Path: notifications/notif_{uid}.{ext} */
     public Mono<String> saveNotificationImage(FilePart filePart) {
-        String ext = getExtension(filePart.filename());
-        String uid = UUID.randomUUID().toString().substring(0, 12);
-        String fileName = "notif_" + uid + ext;
-        Path dest = basePath.resolve("notifications").resolve(fileName);
-        return saveFile(filePart, dest).thenReturn(basePath.relativize(dest).toString().replace("\\", "/"));
+        return store(filePart, UploadKind.IMAGE, basePath.resolve("notifications"), "notif", null);
     }
 
     /** Landing sahifasi rasmini saqlash. Path: landing/{uid}.{ext} */
@@ -460,45 +406,40 @@ public class FileStorageService {
         return basePath.resolve("languages").resolve(languageName + "_" + languageId);
     }
 
-    private Path coursePath(String languageName, Long languageId,
-                            String courseName, Long courseId) {
-        return languagePath(languageName, languageId)
-                .resolve("courses")
-                .resolve(courseName + "_" + courseId);
+    private Path entityDir(String folder, Long id) {
+        return basePath.resolve(folder).resolve(String.valueOf(id));
     }
 
-    private Path lessonPath(String languageName, Long languageId,
-                            String courseName, Long courseId,
-                            String lessonName, Long lessonId) {
-        return coursePath(languageName, languageId, courseName, courseId)
-                .resolve("lessons")
-                .resolve(lessonName + "_" + lessonId);
-    }
-
+    /** Faqat storage ichidagi faylni o'chiradi; tashqi URL va storage'dan tashqaridagi yo'llarga tegmaydi. */
     private void deleteIfExists(String oldPath) {
-        if (oldPath != null && !oldPath.isBlank()) {
-            try {
-                Path path = Paths.get(oldPath);
-                if (!path.isAbsolute()) {
-                    path = basePath.resolve(oldPath);
-                }
-                Files.deleteIfExists(path);
-            } catch (IOException ignored) {
-            }
+        if (oldPath == null || oldPath.isBlank()) return;
+        if (oldPath.startsWith("http://") || oldPath.startsWith("https://")) return;
+        try {
+            Path path = Paths.get(oldPath);
+            Path resolved = (path.isAbsolute() ? path : basePath.resolve(oldPath)).normalize();
+            if (!resolved.startsWith(basePath) || resolved.equals(basePath)) return;
+            if (Files.isRegularFile(resolved)) Files.deleteIfExists(resolved);
+        } catch (IOException | RuntimeException ignored) {
+        }
+    }
+
+    private void deleteQuietly(Path path) {
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ignored) {
         }
     }
 
     /**
-     * Fayl diskka yozilgandan keyin hajmni tekshiradi. Chegaradan oshsa —
-     * yarim yozilgan faylni o'chirib, 413 xatosini qaytaradi.
-     * Content-Length yuborilmagan (chunked) yuklashlar uchun yagona ishonchli himoya.
+     * Fayl diskka yozilgandan keyin haqiqiy hajmni tekshiradi (Content-Length yuborilmagan
+     * yuklashlar uchun yagona ishonchli himoya). Bo'sh fayl — 400, chegaradan katta — 413.
+     * Faylni o'chirish chaqiruvchida (store) bajariladi.
      */
-    private Mono<Void> enforceMaxSize(Path dest, long maxBytes, String message) {
+    private Mono<Void> enforceSize(Path dest, long maxBytes, String message) {
         return Mono.fromCallable(() -> {
-                    if (Files.size(dest) > maxBytes) {
-                        Files.deleteIfExists(dest);
-                        throw new PayloadTooLargeException(message);
-                    }
+                    long size = Files.size(dest);
+                    if (size == 0) throw new BadRequestException("Bo'sh fayl qabul qilinmaydi");
+                    if (size > maxBytes) throw new PayloadTooLargeException(message);
                     return true;
                 })
                 .subscribeOn(Schedulers.boundedElastic())

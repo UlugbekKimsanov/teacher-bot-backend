@@ -21,4 +21,8 @@ public interface LessonRepository extends ReactiveCrudRepository<Lesson, Long> {
 
     @Query("SELECT * FROM lessons WHERE course_id = :courseId AND order_index > :orderIndex ORDER BY order_index ASC LIMIT 1")
     Mono<Lesson> findNextLessonInCourse(Long courseId, Integer orderIndex);
+
+    /** Faylni (video yoki muqova) nechta dars ishlatayotgani — o'chirishdan oldingi tekshiruv uchun. */
+    @Query("SELECT COUNT(*) FROM lessons WHERE video_url = :path OR cover_image = :path")
+    Mono<Long> countFileReferences(String path);
 }

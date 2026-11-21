@@ -342,6 +342,11 @@ public class BooksService {
                 });
     }
 
+    /** Kitob galereyasidagi rasm yo'llari (kitob o'chirilganda fayllarni tozalash uchun). */
+    public List<String> galleryPaths(Books book) {
+        return readImageList(book.getImages());
+    }
+
     private List<String> readImageList(String json) {
         if (json == null || json.isBlank()) return new ArrayList<>();
         try {

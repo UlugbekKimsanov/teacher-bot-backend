@@ -10,6 +10,7 @@ import uz.sevenEdu.teacherBot.landing.dto.LandingContentDto;
 import uz.sevenEdu.teacherBot.landing.dto.LeadRequest;
 import uz.sevenEdu.teacherBot.landing.dto.LeadStatsDto;
 import uz.sevenEdu.teacherBot.landing.dto.LeadUpdateRequest;
+import uz.sevenEdu.teacherBot.landing.entity.LandingContent;
 import uz.sevenEdu.teacherBot.landing.entity.LandingLead;
 import uz.sevenEdu.teacherBot.landing.repository.LandingContentRepository;
 import uz.sevenEdu.teacherBot.landing.repository.LandingLeadRepository;
@@ -96,8 +97,25 @@ public class LandingServiceImpl implements LandingService {
     @Override
     public Mono<LandingContentDto> updateContent(LandingContentDto content) {
         String json = contentNormalizer.write(content);
-        return contentRepository.upsert(CONTENT_ID, json)
+        return backupUnreadableContent()
+                .then(Mono.defer(() -> contentRepository.upsert(CONTENT_ID, json)))
                 .map(c -> contentNormalizer.normalize(c.getContent()));
+    }
+
+    /**
+     * Bazadagi kontent o'qilmasa, GET default kontentni qaytaradi va admin uni tahrirlab saqlaydi —
+     * shunda haqiqiy (buzilgan) kontent izsiz yo'qolardi. Ustidan yozishdan oldin uni shu jadvalga
+     * alohida id (vaqt tamg'asi) bilan nusxalab qo'yamiz; sayt faqat id=1 ni o'qiydi.
+     */
+    private Mono<Void> backupUnreadableContent() {
+        return contentRepository.findById(CONTENT_ID)
+                .filter(existing -> !contentNormalizer.isReadable(existing.getContent()))
+                .flatMap(existing -> contentRepository.upsert(System.currentTimeMillis(), existing.getContent()))
+                .doOnNext((LandingContent backup) -> log.warn(
+                        "O'qilmagan landing kontenti zaxiralandi: landing_content.id={}", backup.getId()))
+                .doOnError(e -> log.error("Landing kontentini zaxiralab bo'lmadi", e))
+                .onErrorResume(e -> Mono.empty())
+                .then();
     }
 
     private LeadDto toDto(LandingLead l) {

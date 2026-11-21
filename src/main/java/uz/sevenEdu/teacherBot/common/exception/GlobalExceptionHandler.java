@@ -85,6 +85,25 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(ex.getMessage());
     }
 
+    /** Bazadagi cheklov buzilishi (dublikat qiymat, bog'liq yozuv) — 500 emas, 409. */
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiResponse<Void> handleDataIntegrity(org.springframework.dao.DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+        return ApiResponse.error("Amalni bajarib bo'lmadi: bunday yozuv allaqachon mavjud yoki boshqa ma'lumotga bog'langan");
+    }
+
+    /** Framework statusli xatolari (mavjud bo'lmagan yo'l — 404, noto'g'ri metod — 405 va h.k.) o'z kodi bilan qaytadi. */
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public org.springframework.http.ResponseEntity<ApiResponse<Void>> handleResponseStatus(
+            org.springframework.web.server.ResponseStatusException ex) {
+        int code = ex.getStatusCode().value();
+        String message = code == 404 ? "Topilmadi"
+                : code == 405 ? "Bu so'rov usuli qo'llab-quvvatlanmaydi"
+                : "So'rovni bajarib bo'lmadi";
+        return org.springframework.http.ResponseEntity.status(ex.getStatusCode()).body(ApiResponse.<Void>error(message));
+    }
+
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ApiResponse<Void> handleGeneral(Exception ex) {
