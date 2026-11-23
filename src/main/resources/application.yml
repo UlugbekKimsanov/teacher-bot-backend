@@ -88,6 +88,12 @@ app:
   google:
     # Google Sign-In Web OAuth client ID(lar)i, vergul bilan ajratiladi.
     oauth-client-ids: ${GOOGLE_OAUTH_CLIENT_IDS:}
+  # Har kuni 09:00 (Toshkent) barcha o'quvchilarga "ilovaga kiring" push eslatmasi
+  # (DailyTestReminderScheduler). O'chirish: enabled: false
+  daily-reminder:
+    enabled: true
+    title: "OAZIS sizni kutmoqda! 🎓"
+    body: "Ilovaga kirib, darslar va yangi imkoniyatlarni sinab ko'ring. Fikringiz biz uchun muhim!"
 
 click:
   merchant-id: 24180
