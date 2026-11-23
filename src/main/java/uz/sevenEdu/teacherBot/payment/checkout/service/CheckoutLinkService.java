@@ -234,7 +234,7 @@ public class CheckoutLinkService {
         if (type == null) return null;
         return switch (type) {
             case "FREE" -> "Yetkazib berish: bepul";
-            case "NEGOTIABLE" -> "Yetkazib berish: kelishiladi";
+            case "NEGOTIABLE" -> "Yetkazib berish: BTS orqali";
             case "PAID" -> book.getDeliveryPrice() != null && book.getDeliveryPrice() > 0
                     ? "Yetkazib berish: " + formatSum(book.getDeliveryPrice().longValue())
                     : null;
