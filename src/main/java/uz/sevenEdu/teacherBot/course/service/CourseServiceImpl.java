@@ -109,7 +109,12 @@ public class CourseServiceImpl implements CourseService {
                                 UserCourse uc = UserCourse.builder()
                                         .userId(userId).courseId(courseId)
                                         .progress(BigDecimal.ZERO).createdAt(LocalDateTime.now()).build();
-                                return userCourseRepository.save(uc).thenReturn(course);
+                                return userCourseRepository.save(uc)
+                                        // Bepul kursga yozilganda ham biriktirilgan sovg'a kitoblar beriladi
+                                        // (xato bo'lsa yozilish buzilmaydi; takror chaqiruvda qayta qo'shilmaydi).
+                                        .then(courseGiftBookRepository.grantCourseGiftsToUser(userId, courseId)
+                                                .onErrorResume(e -> Mono.empty()))
+                                        .thenReturn(course);
                             });
                 })
                 .flatMap(course -> enrichCourse(course, userId));
@@ -195,7 +200,7 @@ public class CourseServiceImpl implements CourseService {
                     Set<Long> enrolled = t.getT2();
                     Set<Long> completedIds = t.getT3();
                     Map<Long, Collection<Lesson>> lessonsByCourse = t.getT4();
-                    Map<Long, List<String>> giftsByCourse = t.getT5();
+                    Map<Long, List<GiftRef>> giftsByCourse = t.getT5();
                     List<CourseDto> dtos = new ArrayList<>(courses.size());
                     for (Course course : courses) {
                         String category = course.getLanguageId() != null
@@ -218,7 +223,9 @@ public class CourseServiceImpl implements CourseService {
                                 .findFirst().orElse(null);
                         CourseDto dto = toDto(course, category, isEnrolled, progress, completed,
                                 lessonCount, hours, cl);
-                        dto.setGiftBooks(giftsByCourse.getOrDefault(course.getId(), List.of()));
+                        List<GiftRef> gifts = giftsByCourse.getOrDefault(course.getId(), List.of());
+                        dto.setGiftBooks(gifts.stream().map(GiftRef::title).toList());
+                        dto.setGiftBookIds(gifts.stream().map(GiftRef::bookId).toList());
                         dtos.add(dto);
                     }
                     return Flux.fromIterable(dtos);
@@ -229,27 +236,31 @@ public class CourseServiceImpl implements CourseService {
      * Kurs → sovg'a kitob nomlari (2 ta so'rov: bog'lanishlar va kitoblar).
      * Xato bo'lsa bo'sh xarita — kurslar ro'yxati sovg'a ma'lumotisiz ham ochilishi kerak.
      */
-    private Mono<Map<Long, List<String>>> giftTitlesByCourse() {
+    private Mono<Map<Long, List<GiftRef>>> giftTitlesByCourse() {
         return courseGiftBookRepository.findAll().collectList()
                 .flatMap(links -> {
-                    if (links.isEmpty()) return Mono.just(Map.<Long, List<String>>of());
+                    if (links.isEmpty()) return Mono.just(Map.<Long, List<GiftRef>>of());
                     Set<Long> bookIds = links.stream()
                             .map(uz.sevenEdu.teacherBot.course.entity.CourseGiftBook::getBookId)
                             .collect(Collectors.toSet());
                     return booksRepository.findAllById(bookIds)
                             .collectMap(b -> b.getId(), b -> b.getTitle() != null ? b.getTitle() : "")
                             .map(titles -> {
-                                Map<Long, List<String>> result = new java.util.HashMap<>();
+                                Map<Long, List<GiftRef>> result = new java.util.HashMap<>();
                                 for (var link : links) {
                                     String title = titles.get(link.getBookId());
                                     if (title == null || title.isBlank()) continue;
-                                    result.computeIfAbsent(link.getCourseId(), k -> new ArrayList<>()).add(title);
+                                    result.computeIfAbsent(link.getCourseId(), k -> new ArrayList<>())
+                                            .add(new GiftRef(link.getBookId(), title));
                                 }
                                 return result;
                             });
                 })
                 .onErrorReturn(Map.of());
     }
+
+    /** Kursga biriktirilgan sovg'a kitob (ID va nom). */
+    private record GiftRef(Long bookId, String title) {}
 
     private CourseDto toDto(Course c, String category, boolean enrolled, BigDecimal progress,
                             int completedLessons, int lessonCount, int hours, Lesson currentLesson) {
@@ -276,6 +287,7 @@ public class CourseServiceImpl implements CourseService {
                 .onSale(Boolean.TRUE.equals(c.getOnSale()))
                 .students(c.getLandingStudents() != null ? c.getLandingStudents() : 0)
                 .giftBooks(List.of())
+                .giftBookIds(List.of())
                 .build();
     }
 }

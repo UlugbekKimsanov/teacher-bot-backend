@@ -29,7 +29,8 @@ import java.util.Map;
  * ikki tomondan boshqariladi: kursdan kitob tanlash yoki kitobdan kurs tanlash.
  *
  * Qoidalar:
- *  - faqat pullik (premium) kursga biriktiriladi — sovg'a xarid uchun beriladi;
+ *  - istalgan kursga biriktiriladi: pullik kursda kitob to'lovdan keyin,
+ *    bepul kursda o'quvchi kursga yozilganda beriladi;
  *  - faqat elektron kitob biriktiriladi (bosma kitob yetkazib berishni talab qiladi);
  *  - biriktirilganda kursning mavjud o'quvchilari ham kitobni oladi;
  *  - bog'lanish olib tashlansa, avval berilgan kitoblar qaytarib olinmaydi.
@@ -61,10 +62,6 @@ public class AdminCourseGiftController {
                         booksRepository.findById(bookId)
                                 .switchIfEmpty(Mono.error(new NotFoundException("Kitob topilmadi"))))
                 .flatMap(pair -> {
-                    if (!Boolean.TRUE.equals(pair.getT1().getIsPremium())) {
-                        return Mono.error(new BadRequestException(
-                                "Sovg'a kitob faqat pullik kursga biriktiriladi"));
-                    }
                     if ("print".equalsIgnoreCase(pair.getT2().getCategory())) {
                         return Mono.error(new BadRequestException(
                                 "Bosma kitobni sovg'a qilib bo'lmaydi — faqat elektron kitob biriktiriladi"));

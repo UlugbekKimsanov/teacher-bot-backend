@@ -62,6 +62,12 @@ public class CheckoutLinkService {
     private final BookPaymentAmountService bookPaymentAmountService;
     private final uz.sevenEdu.teacherBot.course.repository.CourseGiftBookRepository courseGiftBookRepository;
 
+    /** Lokal sinov muhiti ("mock" profili) — prodda doim false. */
+    @org.springframework.beans.factory.annotation.Value("${app.mock-payments.enabled:false}")
+    private boolean mockPaymentsEnabled;
+    @org.springframework.beans.factory.annotation.Value("${app.mock-payments.public-base-url:http://localhost:8080}")
+    private String mockPublicBaseUrl;
+
     // ── Token yaratish (mobil, Bearer auth bilan) ───────────────────
 
     public Mono<CheckoutLinkDto> createLink(Long userId, CheckoutLinkRequest request) {
@@ -254,6 +260,16 @@ public class CheckoutLinkService {
     }
 
     private Mono<Map<String, String>> buildCheckoutUrl(CheckoutToken t, PaymentMethod pm) {
+        // Lokal sinov: "mock" usuli haqiqiy provayder o'rniga lokal soxta to'lov sahifasiga olib boradi.
+        // Faqat "mock" profili yoqilganda ishlaydi — prodda bu usul rad etiladi.
+        if ("mock".equalsIgnoreCase(pm.getCode())) {
+            if (!mockPaymentsEnabled) {
+                return Mono.error(new BadRequestException("Bu to'lov usuli yoqilmagan yoki mavjud emas"));
+            }
+            return Mono.just(Map.of("checkoutUrl", mockPublicBaseUrl.replaceAll("/+$", "")
+                    + "/api/dev/mock-pay?token="
+                    + java.net.URLEncoder.encode(t.getToken(), java.nio.charset.StandardCharsets.UTF_8)));
+        }
         if ("course".equals(t.getProductType())) {
             if (Boolean.TRUE.equals(pm.getIsNasiya())) {
                 return Mono.error(new BadRequestException(

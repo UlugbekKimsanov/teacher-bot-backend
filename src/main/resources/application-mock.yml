@@ -1,0 +1,24 @@
+# LOKAL SINOV MUHITI — haqiqiy to'lov tizimlarisiz xaridni boshidan oxirigacha tekshirish uchun.
+# Prodda HECH QACHON yoqilmaydi ("prod" profili bilan birga ishga tushmaydi — MockPaymentSetup rad etadi).
+#
+# Ishga tushirish (lokal):
+#   mvn spring-boot:run -Dspring-boot.run.profiles=mock
+#
+# Nima beradi:
+#   - "Mock to'lov" degan to'lov usuli (faqat lokal bazada) — to'lov oynasida tanlanadi;
+#   - to'lovga o'tilganda haqiqiy provayder o'rniga lokal sahifa ochiladi:
+#     "To'lash" (muvaffaqiyatli) yoki "Bekor qilish" — keyin landing'ga qaytaradi;
+#   - quyidagi test o'quvchi (landing'da "Parol bilan kirish" orqali; email kodi Redis talab qiladi).
+app:
+  mock-payments:
+    enabled: true
+    # To'lovdan keyin qaytariladigan manzil (lokal landing)
+    return-url: http://localhost:3100/
+    # Mock to'lov sahifasi shu manzilda ochiladi (lokal backend)
+    public-base-url: http://localhost:8080
+    test-user:
+      email: test@oazis.local
+      password: oazis-test-2026
+      first-name: Test
+      last-name: Oquvchi
+      phone: "+998990000001"

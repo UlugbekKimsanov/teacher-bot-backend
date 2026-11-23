@@ -32,4 +32,6 @@ public class CourseDto {
     private Integer students;
     /** Kurs sotib olinganda sovg'a qilinadigan kitoblar nomlari (bo'lmasa bo'sh ro'yxat). */
     private java.util.List<String> giftBooks;
+    /** O'sha sovg'a kitoblarning ID lari (giftBooks bilan bir xil tartibda). */
+    private java.util.List<Long> giftBookIds;
 }
