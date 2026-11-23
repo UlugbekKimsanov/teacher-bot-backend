@@ -92,7 +92,18 @@ public class CheckoutService {
                 + "&merchant_id=" + clickProperties.getMerchantId()
                 + "&amount=" + amountSum
                 + "&transaction_param=" + encode(merchantTransId)
-                + "&return_url=" + encode("https://oazisedu.uz");
+                + "&return_url=" + encode(returnUrl(merchantTransId));
+    }
+
+    /**
+     * To'lov yakunida foydalanuvchi qaytariladigan sahifa. ?paid=type_id bilan
+     * landing "To'lov qabul qilindi" oynasini va (telefonda) mobil ilovaga
+     * qaytaruvchi deep-link tugmasini ko'rsatadi.
+     */
+    private String returnUrl(String merchantTransId) {
+        String[] parts = merchantTransId.split("_");
+        if (parts.length != 3) return "https://oazisedu.uz";
+        return "https://oazisedu.uz/?paid=" + parts[0] + "_" + parts[2];
     }
 
     /**
@@ -101,9 +112,11 @@ public class CheckoutService {
      * params: m={merchantId};ac.order_id={merchantTransId};a={amount_tiyin}
      */
     private String buildPaymeUrl(String merchantTransId, long amountTiyin) {
+        // c — to'lovdan keyin qaytariladigan sahifa (Payme checkout parametri)
         String params = "m=" + paymeProperties.getMerchantId()
                 + ";ac.order_id=" + merchantTransId
-                + ";a=" + amountTiyin;
+                + ";a=" + amountTiyin
+                + ";c=" + returnUrl(merchantTransId);
         String encoded = Base64.getEncoder().encodeToString(params.getBytes(StandardCharsets.UTF_8));
         return "https://checkout.paycom.uz/" + encoded;
     }

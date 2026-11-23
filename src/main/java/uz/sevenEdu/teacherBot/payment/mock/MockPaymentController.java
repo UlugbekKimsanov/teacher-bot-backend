@@ -55,13 +55,18 @@ public class MockPaymentController {
                                 + "<p><a href=\"" + HtmlUtils.htmlEscape(returnUrl) + "\">Saytga qaytish</a></p>"));
     }
 
-    /** "To'lash" bosilganda: xaridni yakunlaydi va landing'ga qaytaradi. */
+    /**
+     * "To'lash" bosilganda: xaridni yakunlaydi va landing'ga qaytaradi —
+     * haqiqiy provayderlar kabi ?paid=type_id bilan (ilovaga qaytish oynasi uchun).
+     */
     @GetMapping("/confirm")
     public Mono<ResponseEntity<Void>> confirm(@RequestParam("token") String token) {
         return validToken(token)
-                .flatMap(t -> fulfil(t).thenReturn(true))
-                .defaultIfEmpty(false)
-                .map(ignored -> ResponseEntity.status(HttpStatus.FOUND).location(URI.create(returnUrl)).<Void>build());
+                .flatMap(t -> fulfil(t).thenReturn(
+                        returnUrl + (returnUrl.contains("?") ? "&" : "?")
+                                + "paid=" + t.getProductType() + "_" + t.getProductId()))
+                .defaultIfEmpty(returnUrl)
+                .map(url -> ResponseEntity.status(HttpStatus.FOUND).location(URI.create(url)).<Void>build());
     }
 
     private Mono<Void> fulfil(CheckoutToken t) {
