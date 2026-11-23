@@ -53,7 +53,7 @@
   "courseCard": {
     "categoryLabel": "Til kurslari",
     "studentsLabel": "o'quvchi",
-    "buyLabel": "Harid qilish"
+    "buyLabel": "Xarid qilish"
   },
   "courses": [
     { "id": "en", "flag": "🇬🇧", "name": "Ingliz tili kursi", "students": 136, "price": "799 000 so'm", "rating": 5.0 },
@@ -65,7 +65,7 @@
     { "id": "zh", "flag": "🇨🇳", "name": "Xitoy tili kursi", "students": 33, "price": "799 000 so'm", "rating": 5.0 }
   ],
   "bonusTitle": "Bonuslar",
-  "bonusText": "Harid qilgan Til kursingizning maxsus interaktiv kitoblarini bepul bonus sifatida sovg'a qilamiz!",
+  "bonusText": "Xarid qilgan Til kursingizning maxsus interaktiv kitoblarini bepul bonus sifatida sovg'a qilamiz!",
   "bonusBooks": [
     { "id": 1, "title": "Ingliz tili kitobi" },
     { "id": 2, "title": "Rus tili kitobi" },
