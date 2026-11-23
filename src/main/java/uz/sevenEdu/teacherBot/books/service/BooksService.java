@@ -276,8 +276,27 @@ public class BooksService {
         return booksRepository.save(book).map(b -> mapToDto(b, false, false));
     }
 
-    public Flux<BooksDto> getAllBooks() {
-        return booksRepository.findAll().map(b -> mapToDto(b, false, false));
+    /**
+     * Barcha kitoblar; userId berilsa har bir kitobda isPurchased (yozuv bor) va
+     * inLibrary (is_active) belgilari to'ldiriladi — getBooksByCategory bilan bir xil qoida.
+     */
+    public Flux<BooksDto> getAllBooks(Long userId) {
+        Flux<Books> booksFlux = booksRepository.findAll();
+        if (userId == null) {
+            return booksFlux.map(b -> mapToDto(b, false, false));
+        }
+        return booksFlux.collectList().flatMapMany(books ->
+                userBookRepository.findByUserId(userId).collectList().flatMapMany(userBooks -> {
+                    Set<Long> purchasedIds = userBooks.stream()
+                            .map(UserBook::getBookId).collect(Collectors.toSet());
+                    Set<Long> activeIds = userBooks.stream()
+                            .filter(ub -> ub.getIsActive() != null && ub.getIsActive())
+                            .map(UserBook::getBookId).collect(Collectors.toSet());
+                    return Flux.fromIterable(books)
+                            .map(b -> mapToDto(b,
+                                    purchasedIds.contains(b.getId()),
+                                    activeIds.contains(b.getId())));
+                }));
     }
 
     public Mono<BooksDto> updateBook(Long id, BooksDto dto) {

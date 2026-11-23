@@ -227,18 +227,21 @@ public class CheckoutLinkService {
                 .build();
     }
 
-    /** Bosma kitob uchun yetkazib berish yorlig'i; boshqa holatlarda null. */
+    /**
+     * Bosma kitob uchun yetkazib berish yorlig'i; elektron kitobda null.
+     * Turi kiritilmagan bo'lsa ham bosma kitob yetkaziladi — standart yo'l BTS orqali,
+     * shuning uchun yozuv har doim chiqadi.
+     */
     private String deliveryLabel(Books book) {
         if (!"print".equalsIgnoreCase(book.getCategory())) return null;
         String type = book.getDeliveryType();
-        if (type == null) return null;
+        if (type == null) return "Yetkazib berish: BTS orqali";
         return switch (type) {
             case "FREE" -> "Yetkazib berish: bepul";
-            case "NEGOTIABLE" -> "Yetkazib berish: BTS orqali";
             case "PAID" -> book.getDeliveryPrice() != null && book.getDeliveryPrice() > 0
                     ? "Yetkazib berish: " + formatSum(book.getDeliveryPrice().longValue())
-                    : null;
-            default -> null;
+                    : "Yetkazib berish: BTS orqali";
+            default -> "Yetkazib berish: BTS orqali";
         };
     }
 

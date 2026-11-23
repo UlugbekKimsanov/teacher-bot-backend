@@ -109,8 +109,10 @@ public class BooksController {
     // ── Admin endpoints ──────────────────────────────────────────
 
     @GetMapping
-    public Mono<ApiResponse<List<BooksDto>>> getAll() {
-        return booksService.getAllBooks().collectList().map(ApiResponse::ok);
+    public Mono<ApiResponse<List<BooksDto>>> getAll(Authentication auth) {
+        // Kirgan foydalanuvchi uchun isPurchased/inLibrary belgilari ham qaytadi —
+        // landing shunga qarab "Sotib olingan"ni ko'rsatadi va to'lov yakunini aniqlaydi.
+        return booksService.getAllBooks(getUserId(auth)).collectList().map(ApiResponse::ok);
     }
 
     @PostMapping
