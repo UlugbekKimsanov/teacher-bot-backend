@@ -26,6 +26,8 @@ public class Course {
     private Integer price;        // so'mda (premium kurslar uchun)
     private String priceLabel;    // masalan "199 000 so'm"
     private Integer orderIndex;   // ko'rsatish tartibi (admin sozlaydi)
+    private Boolean onSale;           // saytda (landing) sotuvdami
+    private Integer landingStudents;  // landing kartasidagi o'quvchilar soni (admin qo'lda belgilaydi)
 
     // Hisoblangan maydonlar (DB ustuni emas)
     @Transient

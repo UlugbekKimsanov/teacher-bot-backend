@@ -709,8 +709,57 @@ public class AdminController {
             validateCourse(course);
             course.setId(null); // yaratishda id clientdan qabul qilinmaydi
             course.setName(course.getName().trim());
+            // Yangi kurs admin "Sotuvga chiqarish"ni bosmaguncha saytda ko'rinmaydi.
+            course.setOnSale(Boolean.TRUE.equals(course.getOnSale()));
+            course.setLandingStudents(normalizeLandingStudents(course.getLandingStudents()));
             return courseRepository.save(course).map(ApiResponse::ok);
         }));
+    }
+
+    /**
+     * Kursni saytda sotuvga chiqarish / sotuvdan olish va landing kartasidagi
+     * o'quvchilar sonini belgilash. Body: { "onSale": true|false, "landingStudents": 120 } —
+     * yuborilmagan maydon o'zgarmaydi (kursning boshqa maydonlariga tegilmaydi).
+     */
+    @PatchMapping("/courses/{id}/sale")
+    public Mono<ApiResponse<Course>> updateCourseSale(Authentication auth, @PathVariable Long id,
+                                                      @RequestBody Map<String, Object> body) {
+        return requireAdmin(auth).then(
+            courseRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Kurs topilmadi")))
+                .flatMap(c -> {
+                    Object onSale = body.get("onSale");
+                    if (onSale != null) {
+                        if (!(onSale instanceof Boolean value)) {
+                            return Mono.error(new BadRequestException("onSale true yoki false bo'lishi kerak"));
+                        }
+                        if (value && Boolean.TRUE.equals(c.getIsPremium())
+                                && (c.getPrice() == null || c.getPrice() <= 0)) {
+                            return Mono.error(new BadRequestException(
+                                    "Premium kursni sotuvga chiqarish uchun avval narxini kiriting"));
+                        }
+                        c.setOnSale(value);
+                    }
+                    Object students = body.get("landingStudents");
+                    if (students != null) {
+                        if (!(students instanceof Number number)
+                                || number.doubleValue() < 0 || number.doubleValue() > 10_000_000
+                                || number.doubleValue() != Math.floor(number.doubleValue())) {
+                            return Mono.error(new BadRequestException(
+                                    "O'quvchilar soni 0 dan 10 000 000 gacha butun son bo'lishi kerak"));
+                        }
+                        c.setLandingStudents(number.intValue());
+                    }
+                    if (c.getOnSale() == null) c.setOnSale(false);
+                    c.setLandingStudents(normalizeLandingStudents(c.getLandingStudents()));
+                    return courseRepository.save(c);
+                })
+                .map(ApiResponse::ok)
+        );
+    }
+
+    private static Integer normalizeLandingStudents(Integer value) {
+        return value == null || value < 0 ? 0 : value;
     }
 
     @PutMapping("/courses/{id}")

@@ -54,7 +54,15 @@ public class CourseServiceImpl implements CourseService {
     @Override
     public Flux<CourseDto> getAllCourses(Long userId) {
         return courseRepository.findAll().collectList()
-                .flatMapMany(courses -> enrichCoursesBatch(courses, userId));
+                .flatMapMany(courses -> {
+                    // Admin sozlagan tartib (order_index), yo'q bo'lsa yaratilish tartibi (id) —
+                    // landing va admin paneldagi ketma-ketlik bir xil bo'lishi uchun.
+                    List<Course> ordered = new ArrayList<>(courses);
+                    ordered.sort((a, b) -> Integer.compare(
+                            a.getOrderIndex() != null ? a.getOrderIndex() : a.getId().intValue(),
+                            b.getOrderIndex() != null ? b.getOrderIndex() : b.getId().intValue()));
+                    return enrichCoursesBatch(ordered, userId);
+                });
     }
 
     @Override
@@ -234,6 +242,8 @@ public class CourseServiceImpl implements CourseService {
                 .currentLessonTitle(currentLesson != null ? currentLesson.getName() : null)
                 .currentLessonImage(currentLesson != null ? fileStorageService.toPublicUrl(currentLesson.getCoverImage()) : null)
                 .currentLessonDurationSec(currentLesson != null ? currentLesson.getDurationSec() : null)
+                .onSale(Boolean.TRUE.equals(c.getOnSale()))
+                .students(c.getLandingStudents() != null ? c.getLandingStudents() : 0)
                 .build();
     }
 }

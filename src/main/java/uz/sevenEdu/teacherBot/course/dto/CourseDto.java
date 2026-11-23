@@ -26,4 +26,8 @@ public class CourseDto {
     private String currentLessonTitle;
     private String currentLessonImage;
     private Integer currentLessonDurationSec;
+    /** Saytda (landing) sotuvdami — landing faqat shu kurslarni ko'rsatadi. */
+    private Boolean onSale;
+    /** Landing kartasidagi o'quvchilar soni (admin qo'lda belgilaydi). */
+    private Integer students;
 }
