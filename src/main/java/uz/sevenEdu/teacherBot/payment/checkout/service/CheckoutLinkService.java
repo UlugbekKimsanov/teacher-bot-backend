@@ -112,7 +112,7 @@ public class CheckoutLinkService {
                     return userCourseRepository.existsByUserIdAndCourseId(userId, courseId)
                             .flatMap(exists -> exists
                                     ? Mono.<Course>error(new BadRequestException(
-                                            "Siz bu kursga allaqachon yozilgansiz"))
+                                            "Siz bu kursni allaqachon sotib olgansiz"))
                                     : Mono.just(course));
                 })
                 .then();
