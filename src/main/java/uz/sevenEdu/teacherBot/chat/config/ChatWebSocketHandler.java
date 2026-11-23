@@ -14,6 +14,8 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 import uz.sevenEdu.teacherBot.chat.dto.ChatMessageDto;
 import uz.sevenEdu.teacherBot.chat.service.ChatService;
+import uz.sevenEdu.teacherBot.common.util.GuestUtil;
+import uz.sevenEdu.teacherBot.user.enums.UserRole;
 import uz.sevenEdu.teacherBot.user.security.JwtUtil;
 
 import java.util.List;
@@ -29,6 +31,9 @@ public class ChatWebSocketHandler implements WebSocketHandler {
     private final JwtUtil jwtUtil;
     private final ChatService chatService;
     private final ObjectMapper objectMapper;
+
+    /** Bitta xabar matnining eng katta uzunligi (belgi). */
+    static final int MAX_TEXT_LENGTH = 4000;
 
     // Room key = "courseId:studentId" -> list of sinks (student + teacher(s) all share same room)
     private final Map<String, List<Sinks.Many<ChatMessageDto>>> roomSinks = new ConcurrentHashMap<>();
@@ -49,28 +54,41 @@ public class ChatWebSocketHandler implements WebSocketHandler {
             return session.close();
         }
 
-        Long userId = jwtUtil.extractUserId(token);
-        String userRole = jwtUtil.extractRole(token);
-        Long courseId = Long.parseLong(courseIdStr);
-
-        // Determine studentId based on role
-        if ("TEACHER".equalsIgnoreCase(userRole)) {
-            // Teacher must specify which student's chat to view
+        final Long userId = jwtUtil.extractUserId(token);
+        final Long courseId;
+        final Long studentIdParam;
+        try {
+            courseId = Long.parseLong(courseIdStr);
             String studentIdStr = params.get("studentId");
-            if (studentIdStr == null) {
-                return session.close();
-            }
-            Long studentId = Long.parseLong(studentIdStr);
-
-            return chatService.isTeacherOfCourse(courseId, userId)
-                    .flatMap(isTeacher -> {
-                        if (!isTeacher) return session.close();
-                        return setupSession(session, courseId, studentId, userId, "teacher");
-                    });
-        } else {
-            // Student — studentId is their own userId
-            return setupSession(session, courseId, userId, userId, "user");
+            studentIdParam = studentIdStr != null ? Long.parseLong(studentIdStr) : null;
+        } catch (NumberFormatException e) {
+            return session.close();
         }
+
+        // Mehmon — hamma mehmonlar uchun bitta umumiy akkaunt: shaxsiy chat ochilsa,
+        // barcha mehmonlar bir-birining yozishmasini ko'rar edi.
+        if (userId == null || GuestUtil.isGuest(userId)) {
+            return session.close();
+        }
+
+        // Rol DB'dan olinadi — JWT ichidagi rol o'zgargan bo'lishi mumkin
+        return chatService.roleOf(userId)
+                .map(java.util.Optional::of)
+                .defaultIfEmpty(java.util.Optional.empty())
+                .flatMap(roleOpt -> {
+                    UserRole role = roleOpt.orElse(null);
+                    if (role == null || role == UserRole.ADMIN) return session.close();
+                    if (role == UserRole.TEACHER) {
+                        // Ustoz qaysi o'quvchining chatini ochayotganini ko'rsatishi shart
+                        if (studentIdParam == null) return session.close();
+                        return chatService.isTeacherOfCourse(courseId, userId)
+                                .flatMap(isTeacher -> isTeacher
+                                        ? setupSession(session, courseId, studentIdParam, userId, "teacher")
+                                        : session.close());
+                    }
+                    // O'quvchi — studentId o'zining userId'si
+                    return setupSession(session, courseId, userId, userId, "user");
+                });
     }
 
     private Mono<Void> setupSession(WebSocketSession session, Long courseId, Long studentId, Long senderId, String senderRole) {
@@ -115,7 +133,8 @@ public class ChatWebSocketHandler implements WebSocketHandler {
     private Mono<Void> handleIncoming(String payload, Long courseId, Long studentId, Long senderId, String senderRole, String roomKey) {
         try {
             JsonNode node = objectMapper.readTree(payload);
-            String text = node.has("text") ? node.get("text").asText() : "";
+            String text = node.hasNonNull("text") ? node.get("text").asText().trim() : "";
+            if (text.length() > MAX_TEXT_LENGTH) text = text.substring(0, MAX_TEXT_LENGTH);
             String mediaPath = node.hasNonNull("mediaPath") ? node.get("mediaPath").asText() : null;
             String mediaType = node.hasNonNull("mediaType") ? node.get("mediaType").asText() : null;
 

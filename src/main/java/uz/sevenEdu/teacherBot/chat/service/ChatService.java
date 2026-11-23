@@ -16,7 +16,18 @@ import uz.sevenEdu.teacherBot.notification.entity.Notification;
 import uz.sevenEdu.teacherBot.notification.repository.NotificationRepository;
 import uz.sevenEdu.teacherBot.user.repository.UserRepository;
 
+import uz.sevenEdu.teacherBot.chat.entity.CourseTeacher;
+import uz.sevenEdu.teacherBot.course.entity.Course;
+import uz.sevenEdu.teacherBot.user.entity.BaseUser;
+import uz.sevenEdu.teacherBot.user.enums.UserRole;
+
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.TreeSet;
 
 @Service
 @RequiredArgsConstructor
@@ -72,10 +83,9 @@ public class ChatService {
                     // O'quvchi yozganda — kursning barcha ustozlariga bildirishnoma,
                     // aks holda ustoz chatni ochmaguncha savoldan bexabar qoladi.
                     return userFullName(studentId)
-                            .flatMapMany(studentName -> courseTeacherRepository
-                                    .findByCourseId(courseId)
-                                    .flatMap(ct -> notificationRepository.save(Notification.builder()
-                                            .userId(ct.getTeacherId())
+                            .flatMapMany(studentName -> teacherIdsOfCourse(courseId)
+                                    .flatMap(teacherId -> notificationRepository.save(Notification.builder()
+                                            .userId(teacherId)
                                             .title("O'quvchidan savol: " + studentName)
                                             .body(notifBody(text, mediaType))
                                             .type("CHAT")
@@ -96,6 +106,67 @@ public class ChatService {
                         ? Mono.just(true)
                         // 2) Yoki o'qituvchi mutaxassisligi (tillari) kurs tiliga mos kelsa
                         : specializationCoversCourse(courseId, teacherId));
+    }
+
+    /**
+     * Ustozning barcha kurslari: to'g'ridan-to'g'ri biriktirilganlar VA mutaxassisligi
+     * (tillari) mos keladigan kurslar. isTeacherOfCourse bilan bir xil qoida — aks holda
+     * ustoz chatga kira olardi-yu, panelda kurs/o'quvchi/chatlarini ko'rmas edi.
+     */
+    public Mono<List<Long>> teacherCourseIds(Long teacherId) {
+        Mono<Set<Long>> assigned = courseTeacherRepository.findByTeacherId(teacherId)
+                .map(CourseTeacher::getCourseId)
+                .collect(java.util.stream.Collectors.toSet());
+        Mono<Set<Long>> bySpecialization = userRepository.findById(teacherId)
+                .flatMapMany(user -> {
+                    Set<String> langs = specializationLanguages(user.getSpecialization());
+                    if (user.getRole() != UserRole.TEACHER || langs.isEmpty()) return Flux.<Long>empty();
+                    return languageRepository.findAll()
+                            .filter(l -> l.getName() != null && langs.contains(normalizeLang(l.getName())))
+                            .flatMap(l -> courseRepository.findByLanguageId(l.getId()))
+                            .map(Course::getId);
+                })
+                .collect(java.util.stream.Collectors.toSet());
+        return Mono.zip(assigned, bySpecialization).map(t -> {
+            Set<Long> all = new TreeSet<>(t.getT1());
+            all.addAll(t.getT2());
+            return (List<Long>) new ArrayList<>(all);
+        });
+    }
+
+    /** Kursning barcha ustozlari (biriktirilgan + mutaxassisligi mos). */
+    public Flux<Long> teacherIdsOfCourse(Long courseId) {
+        Flux<Long> assigned = courseTeacherRepository.findByCourseId(courseId)
+                .map(CourseTeacher::getTeacherId);
+        Flux<Long> bySpecialization = courseRepository.findById(courseId)
+                .filter(c -> c.getLanguageId() != null)
+                .flatMap(c -> languageRepository.findById(c.getLanguageId()))
+                .filter(l -> l.getName() != null)
+                .flatMapMany(l -> userRepository.findByRole(UserRole.TEACHER.name())
+                        .filter(u -> specializationLanguages(u.getSpecialization())
+                                .contains(normalizeLang(l.getName())))
+                        .map(BaseUser::getId));
+        return Flux.concat(assigned, bySpecialization).distinct();
+    }
+
+    /** Rol DB'dan (JWT ichidagi rol eskirgan bo'lishi mumkin). Foydalanuvchi yo'q bo'lsa bo'sh. */
+    public Mono<UserRole> roleOf(Long userId) {
+        return userRepository.findById(userId)
+                .filter(u -> u.getRole() != null)
+                .map(BaseUser::getRole);
+    }
+
+    private static String normalizeLang(String name) {
+        return name.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static Set<String> specializationLanguages(String specialization) {
+        Set<String> result = new HashSet<>();
+        if (specialization == null) return result;
+        for (String s : specialization.split(",")) {
+            if (!s.isBlank()) result.add(normalizeLang(s));
+        }
+        return result;
     }
 
     /** O'qituvchi mutaxassisligidagi tillar kursning tiliga mos keladimi. */

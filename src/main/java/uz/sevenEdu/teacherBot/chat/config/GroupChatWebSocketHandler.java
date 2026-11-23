@@ -14,6 +14,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 import uz.sevenEdu.teacherBot.chat.dto.ChatMessageDto;
 import uz.sevenEdu.teacherBot.chat.service.ChatService;
+import uz.sevenEdu.teacherBot.user.enums.UserRole;
 import uz.sevenEdu.teacherBot.user.security.JwtUtil;
 
 import java.util.List;
@@ -49,17 +50,38 @@ public class GroupChatWebSocketHandler implements WebSocketHandler {
             return session.close();
         }
 
-        Long userId = jwtUtil.extractUserId(token);
-        String userRole = jwtUtil.extractRole(token);
-        Long courseId = Long.parseLong(courseIdStr);
-        String senderRole = "TEACHER".equalsIgnoreCase(userRole) ? "teacher" : "user";
+        final Long userId = jwtUtil.extractUserId(token);
+        final Long courseId;
+        try {
+            courseId = Long.parseLong(courseIdStr);
+        } catch (NumberFormatException e) {
+            return session.close();
+        }
+        if (userId == null) return session.close();
 
-        // Faqat kurs a'zolari (o'quvchi yoki o'qituvchi) kira oladi
-        return chatService.isMemberOfCourse(courseId, userId)
-                .flatMap(isMember -> {
-                    if (!isMember) return session.close();
-                    return chatService.userFullName(userId)
-                            .flatMap(name -> setupSession(session, courseId, userId, senderRole, name));
+        // Rol DB'dan olinadi — JWT ichidagi rol o'zgargan bo'lishi mumkin.
+        // Ustoz huquqi (konferensiya) faqat shu kursning ustoziga beriladi.
+        return chatService.roleOf(userId)
+                .map(java.util.Optional::of)
+                .defaultIfEmpty(java.util.Optional.empty())
+                .flatMap(roleOpt -> {
+                    if (roleOpt.isEmpty()) return session.close();
+                    boolean teacherRole = roleOpt.get() == UserRole.TEACHER;
+                    Mono<Boolean> teacherOfCourse = teacherRole
+                            ? chatService.isTeacherOfCourse(courseId, userId)
+                            : Mono.just(false);
+                    return teacherOfCourse.flatMap(isTeacher -> {
+                        // Faqat kurs a'zolari (o'quvchi yoki o'qituvchi) kira oladi
+                        Mono<Boolean> member = isTeacher
+                                ? Mono.just(true)
+                                : chatService.isMemberOfCourse(courseId, userId);
+                        return member.flatMap(isMember -> {
+                            if (!isMember) return session.close();
+                            String senderRole = isTeacher ? "teacher" : "user";
+                            return chatService.userFullName(userId)
+                                    .flatMap(name -> setupSession(session, courseId, userId, senderRole, name));
+                        });
+                    });
                 });
     }
 
@@ -108,7 +130,8 @@ public class GroupChatWebSocketHandler implements WebSocketHandler {
 
             if ("conference_start".equals(action)) {
                 if (!isTeacher) return Mono.empty();
-                String note = node.hasNonNull("note") ? node.get("note").asText() : null;
+                String note = node.hasNonNull("note") ? node.get("note").asText().trim() : null;
+                if (note != null && note.length() > 300) note = note.substring(0, 300);
                 String scheduledAt = node.hasNonNull("scheduledAt") ? node.get("scheduledAt").asText() : null;
                 return chatService.startConference(courseId, senderId, senderName, note, scheduledAt)
                         .doOnNext(saved -> broadcastToRoom(courseId, saved))
@@ -121,7 +144,10 @@ public class GroupChatWebSocketHandler implements WebSocketHandler {
                         .then();
             }
 
-            String text = node.has("text") ? node.get("text").asText() : "";
+            String text = node.hasNonNull("text") ? node.get("text").asText().trim() : "";
+            if (text.length() > ChatWebSocketHandler.MAX_TEXT_LENGTH) {
+                text = text.substring(0, ChatWebSocketHandler.MAX_TEXT_LENGTH);
+            }
             String mediaPath = node.hasNonNull("mediaPath") ? node.get("mediaPath").asText() : null;
             String mediaType = node.hasNonNull("mediaType") ? node.get("mediaType").asText() : null;
 
