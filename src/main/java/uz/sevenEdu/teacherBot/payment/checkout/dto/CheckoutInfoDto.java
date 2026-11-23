@@ -22,6 +22,7 @@ public class CheckoutInfoDto {
     private String priceLabel;              // formatlangan, masalan "199 000 so'm"
     private Long amountSum;                 // jami so'm (kitobda PAID yetkazib berish qo'shilgan)
     private String deliveryLabel;           // faqat bosma (print) kitob uchun
+    private List<String> giftBooks;         // faqat kurs: xarid bilan sovg'a qilinadigan kitoblar nomlari
     private String userName;                // firstName + lastName
     private List<CheckoutMethodDto> methods;
     private LocalDateTime expiresAt;

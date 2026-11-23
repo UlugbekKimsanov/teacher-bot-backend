@@ -60,6 +60,7 @@ public class CheckoutLinkService {
     private final PaymentMethodRepository paymentMethodRepository;
     private final CheckoutService checkoutService;
     private final BookPaymentAmountService bookPaymentAmountService;
+    private final uz.sevenEdu.teacherBot.course.repository.CourseGiftBookRepository courseGiftBookRepository;
 
     // ── Token yaratish (mobil, Bearer auth bilan) ───────────────────
 
@@ -159,8 +160,16 @@ public class CheckoutLinkService {
                                 courseRepository.findById(t.getProductId())
                                         .switchIfEmpty(Mono.error(new NotFoundException("Kurs topilmadi"))),
                                 userNameMono,
-                                methodsMono)
-                        .map(tuple -> courseInfo(t, tuple.getT1(), tuple.getT2(), tuple.getT3()));
+                                methodsMono,
+                                // Sovg'a kitoblar — xato bo'lsa to'lov oynasi baribir ochiladi
+                                courseGiftBookRepository.findGiftBookTitles(t.getProductId())
+                                        .collectList()
+                                        .onErrorReturn(List.of()))
+                        .map(tuple -> {
+                            CheckoutInfoDto info = courseInfo(t, tuple.getT1(), tuple.getT2(), tuple.getT3());
+                            if (!tuple.getT4().isEmpty()) info.setGiftBooks(tuple.getT4());
+                            return info;
+                        });
             }
             // Jami summa — webhook'lardagi tekshiruv bilan AYNAN bir xil manba
             return Mono.zip(

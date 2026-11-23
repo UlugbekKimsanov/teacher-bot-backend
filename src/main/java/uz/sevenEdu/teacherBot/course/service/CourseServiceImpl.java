@@ -35,6 +35,8 @@ public class CourseServiceImpl implements CourseService {
     private final LessonRepository lessonRepository;
     private final uz.sevenEdu.teacherBot.lesson.repository.UserLessonRepository userLessonRepository;
     private final uz.sevenEdu.teacherBot.common.service.FileStorageService fileStorageService;
+    private final uz.sevenEdu.teacherBot.course.repository.CourseGiftBookRepository courseGiftBookRepository;
+    private final uz.sevenEdu.teacherBot.books.repository.BooksRepository booksRepository;
 
     // Til xaritasi (id -> nom) — statik, har kurs-ro'yxat so'rovida DB urilmasligi uchun
     // 10 daqiqaga keshlanadi (Reactor cache, reaktiv-xavfsiz).
@@ -187,12 +189,13 @@ public class CourseServiceImpl implements CourseService {
                 .findByCourseIdInOrdered(courseIds)
                 .collectMultimap(Lesson::getCourseId);
 
-        return Mono.zip(langMapMono, enrolledMono, completedMono, lessonsMono)
+        return Mono.zip(langMapMono, enrolledMono, completedMono, lessonsMono, giftTitlesByCourse())
                 .flatMapMany(t -> {
                     Map<Long, String> langs = t.getT1();
                     Set<Long> enrolled = t.getT2();
                     Set<Long> completedIds = t.getT3();
                     Map<Long, Collection<Lesson>> lessonsByCourse = t.getT4();
+                    Map<Long, List<String>> giftsByCourse = t.getT5();
                     List<CourseDto> dtos = new ArrayList<>(courses.size());
                     for (Course course : courses) {
                         String category = course.getLanguageId() != null
@@ -213,11 +216,39 @@ public class CourseServiceImpl implements CourseService {
                         Lesson cl = lessons.stream()
                                 .filter(l -> !completedIds.contains(l.getId()))
                                 .findFirst().orElse(null);
-                        dtos.add(toDto(course, category, isEnrolled, progress, completed,
-                                lessonCount, hours, cl));
+                        CourseDto dto = toDto(course, category, isEnrolled, progress, completed,
+                                lessonCount, hours, cl);
+                        dto.setGiftBooks(giftsByCourse.getOrDefault(course.getId(), List.of()));
+                        dtos.add(dto);
                     }
                     return Flux.fromIterable(dtos);
                 });
+    }
+
+    /**
+     * Kurs → sovg'a kitob nomlari (2 ta so'rov: bog'lanishlar va kitoblar).
+     * Xato bo'lsa bo'sh xarita — kurslar ro'yxati sovg'a ma'lumotisiz ham ochilishi kerak.
+     */
+    private Mono<Map<Long, List<String>>> giftTitlesByCourse() {
+        return courseGiftBookRepository.findAll().collectList()
+                .flatMap(links -> {
+                    if (links.isEmpty()) return Mono.just(Map.<Long, List<String>>of());
+                    Set<Long> bookIds = links.stream()
+                            .map(uz.sevenEdu.teacherBot.course.entity.CourseGiftBook::getBookId)
+                            .collect(Collectors.toSet());
+                    return booksRepository.findAllById(bookIds)
+                            .collectMap(b -> b.getId(), b -> b.getTitle() != null ? b.getTitle() : "")
+                            .map(titles -> {
+                                Map<Long, List<String>> result = new java.util.HashMap<>();
+                                for (var link : links) {
+                                    String title = titles.get(link.getBookId());
+                                    if (title == null || title.isBlank()) continue;
+                                    result.computeIfAbsent(link.getCourseId(), k -> new ArrayList<>()).add(title);
+                                }
+                                return result;
+                            });
+                })
+                .onErrorReturn(Map.of());
     }
 
     private CourseDto toDto(Course c, String category, boolean enrolled, BigDecimal progress,
@@ -244,6 +275,7 @@ public class CourseServiceImpl implements CourseService {
                 .currentLessonDurationSec(currentLesson != null ? currentLesson.getDurationSec() : null)
                 .onSale(Boolean.TRUE.equals(c.getOnSale()))
                 .students(c.getLandingStudents() != null ? c.getLandingStudents() : 0)
+                .giftBooks(List.of())
                 .build();
     }
 }

@@ -30,4 +30,6 @@ public class CourseDto {
     private Boolean onSale;
     /** Landing kartasidagi o'quvchilar soni (admin qo'lda belgilaydi). */
     private Integer students;
+    /** Kurs sotib olinganda sovg'a qilinadigan kitoblar nomlari (bo'lmasa bo'sh ro'yxat). */
+    private java.util.List<String> giftBooks;
 }

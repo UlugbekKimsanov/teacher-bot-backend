@@ -36,6 +36,7 @@ public class PaymentFulfillmentService {
     private final CheckoutTokenRepository checkoutTokenRepository;
     private final CourseRepository courseRepository;
     private final PaymentOrderRepository paymentOrderRepository;
+    private final uz.sevenEdu.teacherBot.course.repository.CourseGiftBookRepository courseGiftBookRepository;
 
     /**
      * merchantTransId prefiksiga qarab mos oqimni bajaradi.
@@ -67,6 +68,7 @@ public class PaymentFulfillmentService {
                     .flatMap(newlyEnrolled -> newlyEnrolled
                             ? recordCourseOrder(userId, courseId, paymentMethod)
                             : Mono.<Void>empty())
+                    .then(grantGiftBooks(userId, courseId))
                     .then(consumeTokens(userId, "course", courseId));
         }
         return Mono.empty();
@@ -87,6 +89,18 @@ public class PaymentFulfillmentService {
                                 .createdAt(LocalDateTime.now())
                                 .build())
                             .thenReturn(true));
+    }
+
+    /**
+     * Kursga biriktirilgan sovg'a kitoblarni o'quvchining kutubxonasiga qo'shadi.
+     * Idempotent (webhook qayta kelsa takror qo'shilmaydi); xato bo'lsa to'lov oqimini buzmaydi.
+     */
+    private Mono<Void> grantGiftBooks(Long userId, Long courseId) {
+        return courseGiftBookRepository.grantCourseGiftsToUser(userId, courseId)
+                .doOnError(e -> log.error("Sovg'a kitoblarni berib bo'lmadi: userId={}, courseId={}",
+                        userId, courseId, e))
+                .onErrorResume(e -> Mono.empty())
+                .then();
     }
 
     /**
