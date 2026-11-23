@@ -39,8 +39,9 @@ public class InactivityReminderScheduler {
     private final NotificationRepository notificationRepository;
     private final NotificationService notificationService;
 
-    /** Har kuni soat 18:00 (server vaqti bo'yicha). */
-    @Scheduled(cron = "0 0 18 * * *")
+    /** Har kuni soat 18:00 (Toshkent vaqti; server UTC'da — zone aniq ko'rsatilgan,
+     *  aks holda eslatma 23:00 da ketardi). */
+    @Scheduled(cron = "0 0 18 * * *", zone = "Asia/Tashkent")
     public void sendInactivityReminders() {
         userRepository.findByRole("STUDENT")
                 // faqat kamida bitta kursga yozilgan o'quvchilar
