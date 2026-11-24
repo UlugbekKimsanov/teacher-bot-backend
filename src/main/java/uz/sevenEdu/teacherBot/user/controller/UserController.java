@@ -98,6 +98,11 @@ public class UserController {
     @DeleteMapping("/me")
     public Mono<ApiResponse<Void>> deleteMyAccount(@RequestHeader("Authorization") String authHeader) {
         Long userId = extractUserId(authHeader);
+        // Mehmon akkaunti hamma mehmonlar uchun umumiy tizim akkaunti — o'chirilsa
+        // "Mehmon sifatida kirish" butunlay ishlamay qoladi.
+        if (uz.sevenEdu.teacherBot.common.util.GuestUtil.GUEST_USER_ID.equals(userId)) {
+            return Mono.error(new ForbiddenException("Mehmon akkauntini o'chirib bo'lmaydi"));
+        }
         return userRepository.findById(userId)
                 .switchIfEmpty(Mono.error(new NotFoundException("Foydalanuvchi topilmadi")))
                 .flatMap(user -> {
