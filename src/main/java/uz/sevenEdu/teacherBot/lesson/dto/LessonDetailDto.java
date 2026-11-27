@@ -13,6 +13,15 @@ public class LessonDetailDto {
     private String coverImage;
     private String videoUrl;
     /**
+     * Tejamkor (~480p) video varianti — public /files/... URL. Faqat tayyor (READY) bo'lsa
+     * va fayl diskda mavjud bo'lsa, aks holda null (mijoz videoUrl'dan foydalanadi).
+     */
+    private String videoUrlLow;
+    /** Asl video hajmi (bayt) — lokal fayl bo'lsa; tashqi URL yoki fayl yo'q bo'lsa null. */
+    private Long videoSize;
+    /** Tejamkor variant hajmi (bayt) yoki null. */
+    private Long videoLowSize;
+    /**
      * YouTube unlisted video ID. Faqat haqli foydalanuvchiga qaytariladi:
      * kursga yozilganlarga — har doim; qolganlarga — faqat birinchi dars uchun, aks holda null.
      */

@@ -211,6 +211,35 @@ public class FileStorageService {
         return resolved.startsWith(basePath) ? resolved : null;
     }
 
+    /** Dars fayllari papkasi (absolute): lessons/{lessonId}/ */
+    public Path lessonDir(Long lessonId) {
+        return entityDir("lessons", lessonId);
+    }
+
+    /** Storage ichidagi absolute path -> bazaga yoziladigan nisbiy yo'l. Storage'dan tashqarida bo'lsa null. */
+    public String toStoredPath(Path absolute) {
+        if (absolute == null) return null;
+        Path normalized = absolute.toAbsolutePath().normalize();
+        if (!normalized.startsWith(basePath)) return null;
+        return basePath.relativize(normalized).toString().replace("\\", "/");
+    }
+
+    /**
+     * Lokal fayl hajmi (bayt). Tashqi URL, storage'dan tashqaridagi yo'l yoki fayl
+     * mavjud bo'lmasa — null. BLOKLOVCHI (stat) — boundedElastic'da chaqiring.
+     */
+    public Long storedFileSize(String dbPath) {
+        if (dbPath == null || dbPath.isBlank()) return null;
+        if (dbPath.startsWith("http://") || dbPath.startsWith("https://")) return null;
+        try {
+            Path path = resolveStoredPath(dbPath);
+            if (path == null || !Files.isRegularFile(path)) return null;
+            return Files.size(path);
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
     /** Dars audio kitobi. Path: lessons/{lessonId}/audio_{lessonId}_{uid}.{ext} */
     public Mono<String> saveLessonAudiobook(Long lessonId, FilePart filePart) {
         return store(filePart, UploadKind.AUDIO, entityDir("lessons", lessonId), "audio_" + lessonId, null);
@@ -278,6 +307,7 @@ public class FileStorageService {
         createDirectories(dest.getParent());
         try {
             Files.write(dest, bytes, StandardOpenOption.CREATE_NEW);
+            makePublicReadable(dest);
         } catch (IOException ex) {
             throw new RuntimeException("Landing rasmini saqlab bo'lmadi", ex);
         }
@@ -450,8 +480,27 @@ public class FileStorageService {
         // Bloklovchi papka yaratishni event-loop'dan boundedElastic'ga ko'chiramiz.
         return Mono.fromRunnable(() -> createDirectories(dest.getParent()))
                 .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
-                .then(filePart.transferTo(dest));
+                .then(filePart.transferTo(dest))
+                .then(Mono.fromRunnable(() -> makePublicReadable(dest))
+                        .subscribeOn(Schedulers.boundedElastic()))
+                .then();
     }
+
+    /**
+     * Faylga 644 (rw-r--r--) huquqini beradi. Multipart vaqtinchalik fayl 600 bilan yaratiladi —
+     * shunda nginx (www-data) /files/ ni diskdan to'g'ridan-to'g'ri bera olmaydi (403).
+     * POSIX bo'lmagan tizimda (Windows) jim o'tkazib yuboriladi.
+     */
+    public static void makePublicReadable(Path file) {
+        try {
+            Files.setPosixFilePermissions(file, PUBLIC_FILE_PERMS);
+        } catch (UnsupportedOperationException | IOException ignored) {
+            // Windows / huquqni o'zgartirib bo'lmadi — fayl baribir backend orqali berila oladi
+        }
+    }
+
+    private static final Set<java.nio.file.attribute.PosixFilePermission> PUBLIC_FILE_PERMS =
+            java.nio.file.attribute.PosixFilePermissions.fromString("rw-r--r--");
 
     private void createDirectories(Path dir) {
         try {

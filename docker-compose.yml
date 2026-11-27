@@ -6,6 +6,8 @@ services:
       - "8080:8080"
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      # Fayllar app-storage volume'ga yozilsin (prod default /root/storage volume'dan tashqarida)
+      STORAGE_PATH: /app/storage
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: teacher_bot

@@ -6,6 +6,8 @@ COPY src src
 RUN mvn package -DskipTests -B
 
 FROM eclipse-temurin:17-jre-alpine
+# ffmpeg/ffprobe: video davomiyligi, faststart va tejamkor (~480p) video varianti uchun
+RUN apk add --no-cache ffmpeg
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
 RUN mkdir -p /app/storage

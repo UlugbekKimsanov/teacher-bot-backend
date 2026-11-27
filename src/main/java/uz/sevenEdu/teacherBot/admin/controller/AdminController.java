@@ -57,6 +57,7 @@ public class AdminController {
     private final UserCourseRepository userCourseRepository;
     private final FileStorageService fileStorageService;
     private final uz.sevenEdu.teacherBot.common.service.MediaProbeService mediaProbeService;
+    private final uz.sevenEdu.teacherBot.lesson.service.VideoTranscodeService videoTranscodeService;
     private final NewsRepository newsRepository;
     private final SaleRecordRepository saleRecordRepository;
     private final uz.sevenEdu.teacherBot.payment.repository.PaymentMethodRepository paymentMethodRepository;
@@ -963,6 +964,9 @@ public class AdminController {
                         testRepository.save(TestEntity.builder().lessonId(saved.getId()).name(saved.getName() + " Test").build())
                             .thenReturn(saved)
                     )
+                    .doOnNext(saved -> {
+                        if (Lesson.isLocalVideo(saved.getVideoUrl())) videoTranscodeService.enqueue(saved.getId());
+                    })
                     .map(ApiResponse::ok);
         }));
     }
@@ -983,12 +987,27 @@ public class AdminController {
                     if (body.getOrderIndex() != null) l.setOrderIndex(body.getOrderIndex());
                     if (body.getDurationSec() != null) l.setDurationSec(body.getDurationSec());
                     if (body.getCoverImage() != null && !body.getCoverImage().isBlank()) l.setCoverImage(body.getCoverImage());
-                    if (body.getVideoUrl() != null && !body.getVideoUrl().isBlank()) l.setVideoUrl(body.getVideoUrl());
+                    // Video almashsa — eski tejamkor variant endi mos emas: tozalanadi va
+                    // (lokal fayl bo'lsa) qayta ishlash navbatiga qo'yiladi.
+                    String oldLow = null;
+                    boolean videoChanged = false;
+                    if (body.getVideoUrl() != null && !body.getVideoUrl().isBlank()
+                            && !body.getVideoUrl().equals(l.getVideoUrl())) {
+                        l.setVideoUrl(body.getVideoUrl());
+                        oldLow = resetVideoVariant(l);
+                        videoChanged = true;
+                    }
                     // YouTube ID: null — o'zgarmaydi, bo'sh satr — biriktiruv olib tashlanadi.
                     if (body.getYoutubeId() != null) {
                         l.setYoutubeId(body.getYoutubeId().isBlank() ? null : body.getYoutubeId().trim());
                     }
-                    return lessonRepository.save(l);
+                    String lowToDelete = oldLow;
+                    boolean enqueue = videoChanged && Lesson.isLocalVideo(l.getVideoUrl());
+                    return lessonRepository.save(l)
+                            .flatMap(saved -> deleteUnreferencedLessonFiles(pathsOf(lowToDelete)).thenReturn(saved))
+                            .doOnNext(saved -> {
+                                if (enqueue) videoTranscodeService.enqueue(saved.getId());
+                            });
                 })
                 .map(ApiResponse::ok)
         );
@@ -1011,11 +1030,37 @@ public class AdminController {
                 .flatMap(lesson -> fileStorageService.saveLessonVideo(id, file, lesson.getVideoUrl())
                     .flatMap(path -> {
                         lesson.setVideoUrl(path);
+                        // Yangi video — eski tejamkor variant o'chiriladi, yangisi fonda yaratiladi
+                        String oldLow = resetVideoVariant(lesson);
                         return mediaProbeService
                                 .probeDurationSec(fileStorageService.resolveStoredPath(path))
                                 .doOnNext(lesson::setDurationSec)
-                                .then(Mono.defer(() -> lessonRepository.save(lesson)));
+                                .then(Mono.defer(() -> lessonRepository.save(lesson)))
+                                .flatMap(saved -> deleteUnreferencedLessonFiles(pathsOf(oldLow)).thenReturn(saved))
+                                .doOnNext(saved -> videoTranscodeService.enqueue(saved.getId()));
                     }))
+                .map(ApiResponse::ok)
+        );
+    }
+
+    /**
+     * Dars videosini qayta ishlash (faststart + tejamkor variant) — masalan FAILED bo'lsa
+     * yoki ffmpeg keyin o'rnatilgan bo'lsa. Holat PENDING qilinadi va fon navbatiga qo'yiladi.
+     */
+    @PostMapping("/lessons/{id}/reprocess-video")
+    public Mono<ApiResponse<Lesson>> reprocessLessonVideo(Authentication auth, @PathVariable Long id) {
+        return requireAdmin(auth).then(
+            lessonRepository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Dars topilmadi")))
+                .flatMap(lesson -> {
+                    if (!Lesson.isLocalVideo(lesson.getVideoUrl())) {
+                        return Mono.error(new BadRequestException("Darsda yuklangan video fayl yo'q"));
+                    }
+                    // Nishonli UPDATE — fon jobi bir vaqtda yozayotgan maydonlarni bosib ketmaydi
+                    return lessonRepository.updateVideoLowStatus(id, Lesson.LOW_PENDING, null)
+                            .then(lessonRepository.findById(id));
+                })
+                .doOnNext(saved -> videoTranscodeService.enqueue(saved.getId()))
                 .map(ApiResponse::ok)
         );
     }
@@ -1616,10 +1661,23 @@ public class AdminController {
                 .onErrorResume(e -> Mono.empty());
     }
 
+    /**
+     * Video almashganda tejamkor variant maydonlarini tozalaydi (entity'da, save chaqiruvchida).
+     * Lokal video bo'lsa holat PENDING (fon ishlovi kutilmoqda), tashqi URL bo'lsa null.
+     * Natija — eski tejamkor fayl yo'li (save'dan keyin, boshqa dars ishlatmasa o'chiriladi).
+     */
+    private static String resetVideoVariant(Lesson lesson) {
+        String oldLow = lesson.getVideoUrlLow();
+        lesson.setVideoUrlLow(null);
+        lesson.setVideoLowError(null);
+        lesson.setVideoLowStatus(Lesson.isLocalVideo(lesson.getVideoUrl()) ? Lesson.LOW_PENDING : null);
+        return oldLow;
+    }
+
     private Mono<List<String>> lessonFiles(Lesson lesson) {
         return audiobookRepository.findByLessonIdOrderByOrderIndex(lesson.getId()).collectList()
                 .map(audiobooks -> {
-                    List<String> files = pathsOf(lesson.getVideoUrl(), lesson.getCoverImage());
+                    List<String> files = pathsOf(lesson.getVideoUrl(), lesson.getVideoUrlLow(), lesson.getCoverImage());
                     audiobooks.forEach(a -> files.addAll(pathsOf(a.getFilePath(), a.getPdfPath())));
                     return files;
                 });

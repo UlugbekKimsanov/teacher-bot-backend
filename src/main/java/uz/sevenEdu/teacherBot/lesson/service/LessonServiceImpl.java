@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 import uz.sevenEdu.teacherBot.common.exception.NotFoundException;
 import uz.sevenEdu.teacherBot.common.service.FileStorageService;
 import uz.sevenEdu.teacherBot.course.repository.UserCourseRepository;
@@ -128,6 +129,11 @@ public class LessonServiceImpl implements LessonService {
                             : userCourseRepository.existsByUserIdAndCourseId(userId, lesson.getCourseId())
                                     .defaultIfEmpty(false);
 
+                    // Video fayl hajmlari (stat — bloklovchi, shuning uchun boundedElastic'da)
+                    Mono<VideoFiles> videoFilesMono = Mono.fromCallable(() -> videoFiles(lesson))
+                            .subscribeOn(Schedulers.boundedElastic())
+                            .onErrorReturn(VideoFiles.EMPTY);
+
                     return Mono.zip(
                             vocabularyRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
                             questionRepository.findByLessonId(lessonId).collectList(),
@@ -137,7 +143,9 @@ public class LessonServiceImpl implements LessonService {
                             audiobookRepository.findByLessonIdOrderByOrderIndex(lessonId).collectList(),
                             teacherNameMono,
                             enrolledMono
-                    ).map(tuple -> {
+                    ).zipWith(videoFilesMono).map(withFiles -> {
+                        var tuple = withFiles.getT1();
+                        VideoFiles files = withFiles.getT2();
                         Long nextId = tuple.getT5() == 0L ? null : tuple.getT5();
                         UserLesson ul = tuple.getT4();
                         boolean completed = ul.getIsCompleted() != null && ul.getIsCompleted();
@@ -152,6 +160,9 @@ public class LessonServiceImpl implements LessonService {
                             .description(lesson.getDescription())
                             .coverImage(fileStorageService.toPublicUrl(lesson.getCoverImage()))
                             .videoUrl(fileStorageService.toPublicUrl(lesson.getVideoUrl()))
+                            .videoUrlLow(files.lowUrl())
+                            .videoSize(files.videoSize())
+                            .videoLowSize(files.lowSize())
                             .youtubeId(youtubeId)
                             .orderIndex(lesson.getOrderIndex())
                             .durationSec(lesson.getDurationSec())
@@ -425,6 +436,23 @@ public class LessonServiceImpl implements LessonService {
                     ).toList();
                     return SubmitResultDto.from(pct, achDtos, items);
                 });
+    }
+
+    /** Video fayllari haqida: asl hajm, tejamkor variant URL va hajmi. */
+    private record VideoFiles(Long videoSize, String lowUrl, Long lowSize) {
+        static final VideoFiles EMPTY = new VideoFiles(null, null, null);
+    }
+
+    /** BLOKLOVCHI (Files.size) — faqat boundedElastic'da chaqiriladi. */
+    private VideoFiles videoFiles(Lesson lesson) {
+        Long videoSize = fileStorageService.storedFileSize(lesson.getVideoUrl());
+        String lowUrl = null;
+        Long lowSize = null;
+        if (Lesson.LOW_READY.equals(lesson.getVideoLowStatus()) && lesson.getVideoUrlLow() != null) {
+            lowSize = fileStorageService.storedFileSize(lesson.getVideoUrlLow());
+            if (lowSize != null) lowUrl = fileStorageService.toPublicUrl(lesson.getVideoUrlLow());
+        }
+        return new VideoFiles(videoSize, lowUrl, lowSize);
     }
 
     private LessonDetailDto buildBasicDto(Lesson l, boolean unlocked, boolean completed, UserLesson ul) {

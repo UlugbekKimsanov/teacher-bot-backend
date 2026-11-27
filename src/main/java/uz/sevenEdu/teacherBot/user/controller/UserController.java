@@ -65,7 +65,9 @@ public class UserController {
                     return dir.resolve(fileName);
                 })
                 .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
-                .flatMap(path -> file.transferTo(path).thenReturn(path))
+                .flatMap(path -> file.transferTo(path)
+                        .then(reactor.core.publisher.Mono.fromRunnable(() -> uz.sevenEdu.teacherBot.common.service.FileStorageService.makePublicReadable(path)))
+                        .thenReturn(path))
                 .map(path -> "avatars/" + fileName)
                 .flatMap(relativePath -> userRepository.findById(userId)
                         .flatMap(user -> {

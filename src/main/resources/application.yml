@@ -77,6 +77,11 @@ app:
     # Video davomiyligini avtomatik aniqlash uchun ffprobe. Topilmasa aniqlash
     # o'tkazib yuboriladi (yuklash xato bermaydi) — brauzerdagi qiymat qoladi.
     ffprobe-path: ${FFPROBE_PATH:ffprobe}
+    # Dars videolari fon ishlovi (faststart + tejamkor ~480p variant). ffmpeg topilmasa
+    # ishlov o'tkazib yuboriladi (FAILED: "ffmpeg topilmadi"), ilova ishlashda davom etadi.
+    ffmpeg-path: ${FFMPEG_PATH:ffmpeg}
+    transcode:
+      enabled: ${VIDEO_TRANSCODE_ENABLED:true}
   firebase:
     # Firebase service account JSON fayl yo'li. Bo'sh bo'lsa push (FCM) o'chiq bo'ladi.
     service-account-path: ${FIREBASE_CREDENTIALS:}
