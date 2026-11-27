@@ -27,4 +27,16 @@ public interface CheckoutTokenRepository extends ReactiveCrudRepository<Checkout
               AND used_at IS NULL
             """)
     Mono<Integer> markUsedByUserAndProduct(Long userId, String productType, Long productId);
+
+    /**
+     * Tokenni sessiyaga almashtirilgan deb belgilaydi — atomik, faqat birinchi chaqiruvda 1 qaytaradi.
+     */
+    @Modifying
+    @Query("""
+            UPDATE checkout_tokens
+            SET session_issued_at = now()
+            WHERE id = :id
+              AND session_issued_at IS NULL
+            """)
+    Mono<Integer> markSessionIssued(Long id);
 }

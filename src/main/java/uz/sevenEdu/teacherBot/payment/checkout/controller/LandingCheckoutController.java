@@ -40,6 +40,15 @@ public class LandingCheckoutController {
      * Body: { "method": "click" | "payme" | "paynet" | "uzumnasiya" | "alifnasiya" }
      * Javob data: { "checkoutUrl": "https://..." }
      */
+    /**
+     * Mobil ilovadan kelgan foydalanuvchiga saytda to'liq login sessiyasini ochadi
+     * (javob — oddiy login javobi: token + foydalanuvchi). Har token bilan faqat bir marta.
+     */
+    @PostMapping("/{token}/session")
+    public Mono<ApiResponse<uz.sevenEdu.teacherBot.user.dto.AuthResponse>> session(@PathVariable String token) {
+        return checkoutLinkService.exchangeSession(token).map(ApiResponse::ok);
+    }
+
     @PostMapping("/{token}/pay")
     public Mono<ApiResponse<Map<String, String>>> pay(
             @PathVariable String token, @RequestBody CheckoutPayRequest request) {

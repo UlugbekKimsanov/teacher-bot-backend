@@ -11,4 +11,7 @@ public interface AuthService {
     Mono<Void> sendPhoneOtp(String phone, boolean isLogin);
     Mono<AuthResponse> phoneLogin(LoginRequest request);
     Mono<AuthResponse> guestLogin();
+
+    /** Mavjud (mehmon bo'lmagan) foydalanuvchi uchun web sessiya tokeni — checkout-havola orqali kirishda. */
+    Mono<AuthResponse> issueWebSession(Long userId);
 }

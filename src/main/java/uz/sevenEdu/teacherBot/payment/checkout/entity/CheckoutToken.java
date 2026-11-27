@@ -29,4 +29,5 @@ public class CheckoutToken {
     private LocalDateTime createdAt;
     private LocalDateTime expiresAt;
     private LocalDateTime usedAt;   // to'lov muvaffaqiyatida belgilanadi
+    private LocalDateTime sessionIssuedAt; // saytda shu token bilan login sessiyasi ochilgan vaqt (bir marta)
 }

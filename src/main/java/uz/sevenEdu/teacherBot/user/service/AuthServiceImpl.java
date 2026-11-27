@@ -162,6 +162,15 @@ public class AuthServiceImpl implements AuthService {
                 .map(user -> toAuthResponse(user, true));
     }
 
+    @Override
+    public Mono<AuthResponse> issueWebSession(Long userId) {
+        return userRepository.findById(userId)
+                .switchIfEmpty(Mono.error(new uz.sevenEdu.teacherBot.common.exception.NotFoundException("Foydalanuvchi topilmadi")))
+                .flatMap(user -> Boolean.TRUE.equals(user.getIsGuest())
+                        ? Mono.<AuthResponse>error(new uz.sevenEdu.teacherBot.common.exception.BadRequestException("Mehmon hisobi bilan saytga kirib bo'lmaydi"))
+                        : Mono.just(toAuthResponse(user, false)));
+    }
+
     private AuthResponse toAuthResponse(BaseUser user, boolean isMobile) {
         String token = jwtUtil.generateToken(user.getId(), user.getPhone(), user.getRole(), isMobile);
         return AuthResponse.builder()

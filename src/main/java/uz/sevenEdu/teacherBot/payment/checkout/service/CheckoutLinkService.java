@@ -52,6 +52,7 @@ public class CheckoutLinkService {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final CheckoutTokenRepository checkoutTokenRepository;
+    private final uz.sevenEdu.teacherBot.user.service.AuthService authService;
     private final BooksRepository booksRepository;
     private final CourseRepository courseRepository;
     private final UserBookRepository userBookRepository;
@@ -292,6 +293,21 @@ public class CheckoutLinkService {
      * Token mavjud, hali ishlatilmagan (used_at IS NULL) va muddati o'tmagan
      * bo'lishi shart. Hech narsa consume qilinmaydi (link-scanner'lardan himoya).
      */
+    /**
+     * Mobil ilovadan kelgan tokenni saytdagi login sessiyasiga almashtiradi.
+     * Token amal qilishi (ishlatilmagan, muddati o'tmagan) va hali sessiyaga
+     * almashtirilmagan bo'lishi shart — har token faqat BIR MARTA kirish beradi.
+     * POST bo'lgani uchun havolani oldindan ko'radigan botlar (link preview) uni sarflamaydi.
+     */
+    public Mono<uz.sevenEdu.teacherBot.user.dto.AuthResponse> exchangeSession(String token) {
+        return requireValidToken(token)
+                .flatMap(t -> checkoutTokenRepository.markSessionIssued(t.getId())
+                        .flatMap(updated -> updated != null && updated > 0
+                                ? authService.issueWebSession(t.getUserId())
+                                : Mono.error(new NotFoundException(
+                                        "Bu havola orqali kirish allaqachon amalga oshirilgan"))));
+    }
+
     private Mono<CheckoutToken> requireValidToken(String token) {
         if (token == null || token.isBlank()) {
             return Mono.error(new NotFoundException("To'lov havolasi topilmadi"));
